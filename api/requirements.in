@@ -1,5 +1,5 @@
 # Direct runtime dependencies verified on PyPI, 2026-09-08.
-# REST adapters use httpx; worker/Redis dependencies belong to the Day 1 exercise.
+# REST adapters use httpx. Day 1: arq added for durable ingestion queue (API enqueues only).
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 pydantic==2.13.5
@@ -10,3 +10,4 @@ python-multipart==0.0.32
 pypdf==6.18.0
 httpx==0.28.1
 prometheus-client==0.26.0
+arq==0.27.0
