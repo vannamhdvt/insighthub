@@ -1,4 +1,10 @@
-"""Starter ingestion is synchronous. Day 1 students still implement the queue/worker."""
+"""Reusable ingestion core, now called only by ingestion-worker.
+
+Day 1 removed the ingest_document_sync() wrapper: nothing in the request path may
+run this module any more. process_document() is unchanged on purpose - its row
+lock plus atomic chunk replacement is what makes at-least-once queue delivery
+safe, so the retry policy in the worker leans on it instead of reimplementing it.
+"""
 
 import hashlib
 import io
@@ -162,8 +168,3 @@ def process_document(document_id: int, filename: str, content: bytes) -> int:
         )
         raise failure from None
     return chunk_count
-
-
-def ingest_document_sync(document_id: int, filename: str, content: bytes) -> int:
-    # Day 1: replace the caller with enqueueing, preserving process_document's contract.
-    return process_document(document_id, filename, content)

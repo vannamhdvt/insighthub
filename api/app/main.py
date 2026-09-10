@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import get_settings
 from app.core.db import close_pool, get_conn, initialize_database
 from app.core.errors import ServiceError
+from app.core.queue import close_pool as close_queue_pool
 from app.core.metrics import documents_total, http_requests_total
 from app.core.upload_limit import UploadLimitMiddleware
 from app.routers import chat, documents, health
@@ -29,6 +30,8 @@ async def lifespan(app: FastAPI):
         await run_in_threadpool(initialize_database)
         yield
     finally:
+        # Redis is only a queue client here; a stale pool must not outlive the app.
+        await close_queue_pool()
         await run_in_threadpool(close_pool)
 
 

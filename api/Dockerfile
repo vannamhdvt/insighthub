@@ -16,6 +16,11 @@ COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY --chown=appuser:appuser app ./app
 COPY --chown=appuser:appuser tests ./tests
+# Day 1: the staged-upload directory must exist in the image and be owned by the
+# runtime user. Docker seeds a fresh named volume from the image path, so without
+# this the shared uploads volume lands root-owned and the non-root API cannot write.
+RUN mkdir -p /var/lib/insighthub/uploads \
+    && chown -R appuser:appuser /var/lib/insighthub
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

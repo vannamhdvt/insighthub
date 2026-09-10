@@ -1,4 +1,6 @@
-# DO2603 starter: synchronous ingestion; worker is the mandatory Day 1 learner deliverable.
+# DO2603 Day 1: asynchronous ingestion. Five services - postgres, redis, api, web
+# and ingestion-worker. The ollama service stays behind its profile, so
+# `docker compose config --services` returns exactly five.
 name: insighthub-do2603
 services:
   postgres:
@@ -16,10 +18,23 @@ services:
       timeout: 3s
       retries: 12
     mem_limit: 768m
+  redis:
+    image: redis:8.8.2-alpine@sha256:96cb544fa0af5aa898d160cffb7dae70c3df117190fc123831c64712cda425ff
+    # Queue coordination only: no document content is written to Redis.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 256m
   api:
     build: ./api
     environment:
       DATABASE_URL: postgresql://insighthub:insighthub@postgres:5432/insighthub
+      # Must match ingestion-worker exactly, or uploads queue into nothing.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/var/lib/insighthub/uploads}
       RAG_MODE: ${RAG_MODE:-fixture}
       LLM_PROVIDER: ${LLM_PROVIDER:-fixture}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fixture}
@@ -44,8 +59,51 @@ services:
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-mxbai-embed-large}
       PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-60}
     ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    volumes:
+      - uploads:/var/lib/insighthub/uploads
     depends_on:
       postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    mem_limit: 1g
+  ingestion-worker:
+    # Service name is part of the Day 1 verification contract: verify.py day1
+    # inspects the ingestion-worker service by name.
+    build:
+      context: .
+      dockerfile: ingestion-worker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://insighthub:insighthub@postgres:5432/insighthub
+      # Must match api exactly.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/var/lib/insighthub/uploads}
+      RAG_MODE: ${RAG_MODE:-fixture}
+      LLM_PROVIDER: ${LLM_PROVIDER:-fixture}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fixture}
+      LLM_MODEL: ${LLM_MODEL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-1024}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      EMBEDDING_REVISION: ${EMBEDDING_REVISION:-1}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-2}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_CHAT_MODEL: ${ANTHROPIC_CHAT_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      VOYAGE_EMBEDDING_MODEL: ${VOYAGE_EMBEDDING_MODEL:-voyage-3.5}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-mxbai-embed-large}
+      PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-60}
+    volumes:
+      - uploads:/var/lib/insighthub/uploads
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
     mem_limit: 1g
   web:
     build: ./web
@@ -68,3 +126,5 @@ services:
 volumes:
   pgdata:
   ollama-data:
+  # Staged upload bytes: written by api, read by ingestion-worker.
+  uploads:
