@@ -8,7 +8,7 @@ import httpx
 from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
-from support import configured
+from support import configured, queue_stub
 from app.core.errors import InvalidDocument, ProviderError
 from app.core.metrics import http_requests_total
 from app.core.upload_limit import UploadLimitMiddleware
@@ -52,6 +52,27 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         connection.assert_not_called()
 
+    def test_upload_returns_202_and_never_ingests_in_the_request(self):
+        from app.core import staging
+
+        self.addCleanup(staging.discard, 42)
+        with (
+            queue_stub() as queued,
+            patch("app.routers.documents._create_pending", return_value=42),
+            patch("app.services.ingestion.process_document") as ingest,
+        ):
+            response = TestClient(app).post(
+                "/documents", files={"file": ("async.txt", b"async ingestion")}
+            )
+        self.assertEqual(response.status_code, 202, response.text)
+        body = response.json()
+        self.assertEqual(
+            (body["id"], body["status"], body["chunk_count"]), (42, "pending", 0)
+        )
+        self.assertEqual(len(queued), 1)
+        # The whole point of Day 1: the request path must not ingest anything.
+        ingest.assert_not_called()
+
     def test_file_read_is_bounded_and_closed(self):
         class GuardedFile(io.BytesIO):
             def read(self, size=-1):
@@ -61,8 +82,10 @@ class HttpTests(unittest.TestCase):
                 return super().read(size)
 
         stream = GuardedFile(b"12345")
+        # Day 1: the handler is async now, but the read must stay bounded and the
+        # file must still be closed before any size decision is made.
         with configured(max_upload_bytes=4), self.assertRaises(HTTPException) as raised:
-            upload_document(UploadFile(filename="test.txt", file=stream))
+            asyncio.run(upload_document(UploadFile(filename="test.txt", file=stream)))
         self.assertEqual(raised.exception.status_code, 413)
         self.assertEqual(stream.requested, 5)
         self.assertTrue(stream.closed)

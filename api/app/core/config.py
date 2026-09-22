@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=5, ge=1, le=20)
     hnsw_ef_search: int = Field(default=100, ge=20, le=1000)
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
+    # Day 1 async ingestion. API and ingestion-worker MUST read the same REDIS_URL
+    # and the same UPLOAD_DIR volume, otherwise jobs or staged bytes are unreachable.
+    redis_url: str = Field(default="redis://redis:6379/0", repr=False)
+    upload_dir: str = "/var/lib/insighthub/uploads"
 
     @model_validator(mode="after")
     def validate_configuration(self):
@@ -116,6 +120,11 @@ class Settings(BaseSettings):
                 raise ValueError("Ollama embedding requires mxbai-embed-large")
             if self.embedding_dim != 1024:
                 raise ValueError("mxbai-embed-large requires EMBEDDING_DIM=1024")
+        redis = urlsplit(self.redis_url)
+        if redis.scheme not in {"redis", "rediss", "unix"} or (
+            redis.scheme != "unix" and not redis.hostname
+        ):
+            raise ValueError("REDIS_URL must be redis://, rediss:// or unix://")
         return self
 
     @property

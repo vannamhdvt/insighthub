@@ -1,0 +1,35 @@
+{
+    "mcpServers": {
+        "insighthub-readonly": {
+            "type": "stdio",
+            "command": "/opt/homebrew/bin/node",
+            "args": ["/Users/zotabox/Downloads/DO2603/insighthub/tools/mcp/src/server.mjs"],
+            "env": {
+                "INSIGHTHUB_API_URL": "http://127.0.0.1:8000",
+                "INSIGHTHUB_MCP_TOOLS": "insighthub_health,insighthub_list_documents",
+                "INSIGHTHUB_MCP_PROMETHEUS": "0",
+                "INSIGHTHUB_MCP_TIMEOUT_MS": "1500",
+                "INSIGHTHUB_MCP_MAX_BYTES": "65536"
+            }
+        },
+        "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem@2026.8.31",
+                        "/Users/zotabox/Downloads/DO2603/insighthub"]
+        },
+        "docker": {
+            "command": "uvx",
+            "args": ["--with", "mcp<1.9", "docker-mcp==0.2.0"]
+        },
+        "kubernetes": {
+            "command": "npx",
+            "args": ["-y", "kubernetes-mcp-server@0.0.67", "--read-only",
+                        "--kubeconfig", "/Users/zotabox/.kube/mcp-readonly.kubeconfig"]
+        },
+        "prometheus": {
+            "command": "npx",
+            "args": ["prometheus-mcp@1.1.3", "stdio"],
+            "env": { "PROMETHEUS_URL": "http://localhost:9090" }
+        }
+    }
+}

@@ -1,0 +1,13 @@
+# Ingestion worker runtime dependencies (Day 1).
+# The worker reuses api/app/services/ingestion.py, so it needs the same data and
+# provider libraries as the API, minus the HTTP server stack (fastapi/uvicorn).
+# Versions are kept identical to api/requirements.in on purpose: a version skew
+# between API and worker would change the pipeline identity across services.
+arq==0.27.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+psycopg[binary,pool]==3.3.5
+pgvector==0.5.0
+pypdf==6.18.0
+httpx==0.28.1
+prometheus-client==0.26.0
