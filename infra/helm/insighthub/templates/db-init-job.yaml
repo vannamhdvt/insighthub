@@ -1,0 +1,63 @@
+{{- if .Values.dbInit.enabled }}
+# Applies infra/db/init.sql (idempotent: IF NOT EXISTS). On RDS the master user
+# can CREATE EXTENSION vector; no shared_preload_libraries needed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "insighthub.fullname" . }}-db-init-{{ .Release.Revision }}
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-init
+  annotations:
+    {{- include "insighthub.checkovWorkload" . | nindent 4 }}
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "insighthub.labels" . | nindent 8 }}
+        app.kubernetes.io/component: db-init
+      annotations:
+        checksum/sql: {{ .Files.Get "files/init.sql" | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "insighthub.podSecurityContext" (dict "uid" 999) | nindent 8 }}
+      containers:
+        - name: psql
+          image: {{ include "insighthub.image" .Values.images.pgclient }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["sh", "-c", 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /sql/init.sql']
+          env:
+            {{- include "insighthub.secretEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "insighthub.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+            {{- include "insighthub.csiMount" . | nindent 12 }}
+      volumes:
+        - name: sql
+          configMap:
+            name: {{ include "insighthub.fullname" . }}-db-init
+        {{- include "insighthub.csiVolume" . | nindent 8 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "insighthub.fullname" . }}-db-init
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+data:
+  init.sql: |
+    {{- .Files.Get "files/init.sql" | nindent 4 }}
+{{- end }}

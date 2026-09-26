@@ -1,0 +1,5 @@
+# Copy to dev.s3.tfbackend and fill values from `terraform -chdir=infra/bootstrap output`.
+bucket     = "do2603-namtv-tfstate-<account_id>"
+key        = "insighthub/dev/terraform.tfstate"
+region     = "ap-southeast-1"
+kms_key_id = "<state_kms_key_arn>"

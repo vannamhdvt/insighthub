@@ -1,0 +1,18 @@
+# EKS dev. Image repository/tag and the ingress host are set by CI:
+#   --set images.api.repository=<ecr>/do2603-namtv-dev/api --set images.api.tag=<sha> ...
+#   --set ingress.host=<host> --set ingress.tls.acmeEmail=<email>
+environment: dev
+serviceAccount:
+  create: false
+  name: insighthub
+runtimeSecret:
+  source: aws
+  aws:
+    secretName: do2603-namtv-dev/runtime
+    region: ap-southeast-1
+uploads:
+  storageClass: gp3-encrypted
+ingress:
+  host: insighthub-dev.example.com
+  tls:
+    issuer: letsencrypt

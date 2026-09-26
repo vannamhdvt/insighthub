@@ -1,0 +1,4 @@
+bucket     = "do2603-namtv-tfstate-<account_id>"
+key        = "insighthub/staging/terraform.tfstate"
+region     = "ap-southeast-1"
+kms_key_id = "<state_kms_key_arn>"

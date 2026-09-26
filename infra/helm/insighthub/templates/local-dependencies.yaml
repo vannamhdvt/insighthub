@@ -1,0 +1,163 @@
+{{- if .Values.localDependencies.enabled }}
+{{- $name := include "insighthub.fullname" . }}
+# LOCAL ONLY (minikube/kind). On EKS these are RDS and ElastiCache, never pods.
+# Data lives in emptyDir: reproducible sample data, deleted with the pod.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}-local-runtime
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+type: Opaque
+stringData:
+  # checkov:skip=CKV_SECRET_4:Throwaway local-only credential, same as docker-compose; never rendered for EKS
+  DATABASE_URL: postgresql://insighthub:insighthub@{{ $name }}-postgres:5432/insighthub
+  REDIS_URL: redis://{{ $name }}-redis:6379/0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-postgres
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  annotations:
+    {{- include "insighthub.checkovWorkload" . | nindent 4 }}
+spec:
+  replicas: 1
+  # emptyDir data: never run two instances side by side during a rollout.
+  strategy:
+    type: Recreate
+    # Clears the RollingUpdate defaults already stored on upgrade (server-side apply).
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" . "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "insighthub.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "insighthub.podSecurityContext" (dict "uid" 999) | nindent 8 }}
+      containers:
+        - name: postgres
+          image: {{ include "insighthub.image" .Values.images.pgclient }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - {name: POSTGRES_USER, value: insighthub}
+            - {name: POSTGRES_PASSWORD, value: insighthub}
+            - {name: POSTGRES_DB, value: insighthub}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: pg, containerPort: 5432}
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "insighthub", "-d", "insighthub"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "insighthub", "-d", "insighthub"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+            {{- include "insighthub.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 768Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: run, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: data, emptyDir: {}}
+        - {name: run, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-postgres
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "insighthub.selector" (dict "root" . "component" "postgres") | nindent 4 }}
+  ports:
+    - {name: pg, port: 5432, targetPort: pg}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-redis
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+  annotations:
+    {{- include "insighthub.checkovWorkload" . | nindent 4 }}
+spec:
+  replicas: 1
+  # emptyDir data: never run two instances side by side during a rollout.
+  strategy:
+    type: Recreate
+    # Clears the RollingUpdate defaults already stored on upgrade (server-side apply).
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" . "component" "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "insighthub.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "insighthub.podSecurityContext" (dict "uid" 999) | nindent 8 }}
+      containers:
+        - name: redis
+          # Same pinned image as docker-compose.
+          image: redis@sha256:96cb544fa0af5aa898d160cffb7dae70c3df117190fc123831c64712cda425ff
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            {{- include "insighthub.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-redis
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "insighthub.selector" (dict "root" . "component" "redis") | nindent 4 }}
+  ports:
+    - {name: redis, port: 6379, targetPort: redis}
+{{- end }}

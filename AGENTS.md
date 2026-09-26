@@ -38,6 +38,10 @@ Trách nhiệm:
 `api` và `ingestion-worker` phải dùng chung `REDIS_URL` và `UPLOAD_DIR`. Lệch một
 trong hai là upload trả `202` mà không ai xử lý.
 
+Deploy (Day 3): Terraform `infra/` (EKS, RDS pgvector, ElastiCache, IRSA, Secrets
+Manager) + Helm `infra/helm/insighthub`. Trên EKS postgres/redis là managed service,
+không phải pod; secret vào pod qua IRSA + Secrets Store CSI. Spec: `infra/SPEC.md`.
+
 ## Conventions
 
 * Giữ style và structure hiện tại.
@@ -72,6 +76,9 @@ chậm treo cả API.
 * `curl -s localhost:8000/documents` — xem `pending` chuyển `ready`
 * `python3 scripts/verify.py day1 --evidence-dir evidence` — chạy sau khi code đã
   chốt, vì `source_sha256` phủ cả file chưa commit
+* IaC gate: `terraform fmt -check -recursive infra`, `tflint --recursive`,
+  `checkov -d infra`, `conftest test --policy infra/policies/terraform <plan.json>`
+* Runbook AWS/teardown: `docs/runbooks/day3-aws-lab.md`
 
 Tái hiện failure case:
 

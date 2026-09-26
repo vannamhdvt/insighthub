@@ -1,0 +1,101 @@
+# Defaults are secure and environment-neutral. Environment files:
+#   values-dev.yaml   EKS + RDS + ElastiCache (secrets from AWS Secrets Manager via IRSA)
+#   values-local.yaml minikube/kind with in-cluster postgres/redis for local-first testing
+environment: dev
+
+serviceAccount:
+  # On EKS the IRSA-annotated ServiceAccount is created by Terraform.
+  create: false
+  name: insighthub
+  annotations: {}
+
+imagePullPolicy: Always
+
+images:
+  api:
+    repository: insighthub-api
+    tag: local
+  worker:
+    repository: insighthub-worker
+    tag: local
+  web:
+    repository: insighthub-web
+    tag: local
+  # psql for schema init; same pinned image as docker-compose postgres.
+  pgclient:
+    repository: pgvector/pgvector
+    tag: 0.8.2-pg16
+    digest: sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+
+# Non-secret configuration shared by api and ingestion-worker (same as compose).
+config:
+  RAG_MODE: fixture
+  LLM_PROVIDER: fixture
+  EMBEDDING_PROVIDER: fixture
+  LLM_MAX_TOKENS: "1024"
+  EMBEDDING_DIM: "1024"
+  EMBEDDING_REVISION: "1"
+  PROVIDER_TIMEOUT_SECONDS: "60"
+  UPLOAD_DIR: /var/lib/insighthub/uploads
+
+# DATABASE_URL and REDIS_URL. Never in values.
+runtimeSecret:
+  # aws: Secrets Store CSI driver + AWS provider, read with the pod IRSA role
+  # existing: a Kubernetes Secret created out of band (or by localDependencies)
+  source: aws
+  name: insighthub-runtime
+  aws:
+    secretName: do2603-namtv-dev/runtime
+    region: ap-southeast-1
+
+api:
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+worker:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+
+web:
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 300m, memory: 384Mi}
+
+# Staged upload bytes shared by api and worker (Day 1 contract). RWO volume, so
+# api and worker are co-scheduled on one node; use EFS/S3 staging for multi-node HA.
+uploads:
+  size: 5Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+dbInit:
+  enabled: true
+  waitAttempts: 60
+
+ingress:
+  enabled: true
+  className: nginx
+  host: insighthub-dev.example.com
+  tls:
+    enabled: true
+    # letsencrypt (public DNS name required) | selfsigned (local)
+    issuer: selfsigned
+    acmeEmail: ""
+    acmeServer: https://acme-v02.api.letsencrypt.org/directory
+
+networkPolicy:
+  enabled: true
+  ingressControllerNamespace: ingress-nginx
+
+localDependencies:
+  enabled: false

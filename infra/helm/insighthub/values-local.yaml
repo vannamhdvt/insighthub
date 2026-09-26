@@ -1,0 +1,22 @@
+# minikube/kind: images loaded locally, in-cluster postgres/redis, self-signed TLS.
+#   minikube addons enable ingress   (ingress-nginx)
+#   helm install cert-manager ... (see infra/README.md) for the self-signed issuer
+environment: local
+imagePullPolicy: IfNotPresent
+serviceAccount:
+  create: true
+  name: insighthub
+runtimeSecret:
+  source: existing
+api:
+  replicas: 1
+  hpa:
+    enabled: false
+ingress:
+  host: insighthub.local
+  tls:
+    issuer: selfsigned
+networkPolicy:
+  ingressControllerNamespace: ingress-nginx
+localDependencies:
+  enabled: true

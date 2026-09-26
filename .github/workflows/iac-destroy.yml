@@ -1,0 +1,76 @@
+# Lab teardown: destroy right after the lab run (DO2603 cost guide). Reviewed
+# destroy plan, applied as that exact plan. App release first so the NLB and
+# EBS volumes created by Kubernetes controllers are gone before the VPC.
+name: iac-destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy
+        type: choice
+        options: [dev, staging]
+        default: dev
+      confirm:
+        description: Type the environment name again to confirm
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iac-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.13.3
+  TF_ENV: ${{ inputs.environment }}
+  NAME_PREFIX: do2603-namtv
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  destroy:
+    if: inputs.confirm == inputs.environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          role-session-name: gha-destroy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Uninstall app release (PVC/EBS) if the cluster exists
+        run: |
+          if aws eks describe-cluster --name "${NAME_PREFIX}-${TF_ENV}" >/dev/null 2>&1; then
+            aws eks update-kubeconfig --region "$AWS_REGION" --name "${NAME_PREFIX}-${TF_ENV}"
+            helm uninstall insighthub -n "insighthub-${TF_ENV}" --wait --timeout 10m || true
+            kubectl -n "insighthub-${TF_ENV}" delete pvc --all --wait=true --timeout=5m || true
+          fi
+      - name: Destroy plan -> apply that plan
+        working-directory: infra
+        env:
+          TF_VAR_cluster_admin_principal_arns: '["${{ vars.AWS_APPLY_ROLE_ARN }}","${{ vars.LAB_ADMIN_ROLE_ARN }}"]'
+          TF_VAR_cluster_viewer_principal_arns: '["${{ vars.AWS_PLAN_ROLE_ARN }}"]'
+        run: |
+          terraform init -lockfile=readonly \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=insighthub/${TF_ENV}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
+          terraform plan -destroy -lock-timeout=5m -var-file="envs/${TF_ENV}.tfvars" -out=/tmp/teardown.tfplan -no-color
+          terraform show -no-color /tmp/teardown.tfplan | grep -E '^Plan:'
+          terraform apply -lock-timeout=5m -no-color /tmp/teardown.tfplan
+          echo "Remaining state:"; terraform state list || true
