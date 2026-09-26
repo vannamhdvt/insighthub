@@ -1,0 +1,7 @@
+apiVersion: v2
+name: insighthub
+description: InsightHub RAG app (web, api, ingestion-worker). DB/cache are managed services on EKS.
+type: application
+version: 0.3.0
+appVersion: "day3"
+kubeVersion: ">=1.29.0-0"

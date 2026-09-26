@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "insighthub.fullname" . }}-ingestion-worker
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingestion-worker
+  annotations:
+    {{- include "insighthub.checkovWorkload" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" . "component" "ingestion-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "insighthub.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ingestion-worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "insighthub.podSecurityContext" (dict) | nindent 8 }}
+      {{- if eq .Values.uploads.accessMode "ReadWriteOnce" }}
+      # RWO uploads volume: must run on the node that mounts it for the api.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "insighthub.selector" (dict "root" . "component" "api") | nindent 18 }}
+      {{- end }}
+      initContainers:
+        {{- include "insighthub.waitForSchema" . | nindent 8 }}
+      containers:
+        - name: ingestion-worker
+          image: {{ include "insighthub.image" .Values.images.worker }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "insighthub.fullname" . }}-config
+          env:
+            {{- include "insighthub.secretEnv" . | nindent 12 }}
+          # Same health key as the compose HEALTHCHECK.
+          readinessProbe:
+            exec:
+              command: ["arq", "--check", "worker.worker.WorkerSettings"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["arq", "--check", "worker.worker.WorkerSettings"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+          securityContext:
+            {{- include "insighthub.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: uploads
+              mountPath: {{ .Values.config.UPLOAD_DIR }}
+            - name: tmp
+              mountPath: /tmp
+            {{- include "insighthub.csiMount" . | nindent 12 }}
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: {{ include "insighthub.fullname" . }}-uploads
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        {{- include "insighthub.csiVolume" . | nindent 8 }}

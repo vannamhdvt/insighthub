@@ -1,0 +1,284 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.3",
+  "resource_changes": [
+    {
+      "address": "module.rds.aws_db_instance.this",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "this",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "instance_class": "db.t4g.micro",
+          "storage_encrypted": true,
+          "publicly_accessible": false,
+          "multi_az": false,
+          "deletion_protection": false,
+          "backup_retention_period": 1,
+          "engine": "postgres",
+          "engine_version": "16",
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.elasticache.aws_elasticache_replication_group.this",
+      "mode": "managed",
+      "type": "aws_elasticache_replication_group",
+      "name": "this",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "node_type": "cache.t4g.micro",
+          "at_rest_encryption_enabled": true,
+          "transit_encryption_enabled": true,
+          "engine": "redis",
+          "engine_version": "7.1",
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_eks_cluster.this",
+      "mode": "managed",
+      "type": "aws_eks_cluster",
+      "name": "this",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "name": "insighthub-dev",
+          "encryption_config": [
+            {
+              "resources": [
+                "secrets"
+              ],
+              "provider": [
+                {}
+              ]
+            }
+          ],
+          "vpc_config": [
+            {
+              "endpoint_public_access": true,
+              "endpoint_private_access": true,
+              "public_access_cidrs": [
+                "0.0.0.0/0"
+              ]
+            }
+          ],
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_eks_node_group.default",
+      "mode": "managed",
+      "type": "aws_eks_node_group",
+      "name": "default",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "instance_types": [
+            "t3.medium"
+          ],
+          "scaling_config": [
+            {
+              "desired_size": 2,
+              "min_size": 1,
+              "max_size": 3
+            }
+          ],
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_launch_template.node",
+      "mode": "managed",
+      "type": "aws_launch_template",
+      "name": "node",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "block_device_mappings": [
+            {
+              "device_name": "/dev/xvda",
+              "ebs": [
+                {
+                  "encrypted": "true",
+                  "volume_type": "gp3",
+                  "volume_size": 30
+                }
+              ]
+            }
+          ],
+          "metadata_options": [
+            {
+              "http_tokens": "required",
+              "http_put_response_hop_limit": 1
+            }
+          ],
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.rds.aws_vpc_security_group_ingress_rule.db[\"sg-cluster\"]",
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "db[\"sg-cluster\"]",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "from_port": 5432,
+          "to_port": 5432,
+          "ip_protocol": "tcp",
+          "cidr_ipv4": null,
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.secrets.aws_secretsmanager_secret.runtime",
+      "mode": "managed",
+      "type": "aws_secretsmanager_secret",
+      "name": "runtime",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "name": "insighthub-dev/runtime",
+          "kms_key_id": "arn:aws:kms:ap-southeast-1:111122223333:key/example",
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.irsa_app.aws_iam_role.this",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "this",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "name": "insighthub-dev-app",
+          "tags_all": {
+            "project": "insighthub",
+            "environment": "prod",
+            "owner": "namtv",
+            "cost_center": "do2603",
+            "managed_by": "terraform",
+            "Class": "DO2603",
+            "LabId": "do2603-namtv-day3",
+            "Owner": "namtv",
+            "ExpiresAt": "2026-09-24T17:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "address": "kubernetes_namespace_v1.app",
+      "mode": "managed",
+      "type": "kubernetes_namespace_v1",
+      "name": "app",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "metadata": [
+            {
+              "name": "insighthub-dev"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

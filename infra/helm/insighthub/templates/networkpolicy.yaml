@@ -1,0 +1,85 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $name := include "insighthub.fullname" . }}
+# Default deny ingress for the release; allow only the paths the app uses.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-default-deny-ingress
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-web
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" . "component" "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace }}
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-api
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace }}
+        - podSelector:
+            matchLabels:
+              {{- include "insighthub.selector" (dict "root" . "component" "web") | nindent 14 }}
+      ports:
+        - port: 8000
+{{- if .Values.localDependencies.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-local-deps
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [postgres, redis]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}

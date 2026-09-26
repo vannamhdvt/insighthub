@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "insighthub.fullname" . }}-config
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+data:
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  ENVIRONMENT: {{ .Values.environment | quote }}

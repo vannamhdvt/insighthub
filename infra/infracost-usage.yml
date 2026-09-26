@@ -1,0 +1,20 @@
+# Infracost usage for ONE lab run, not a month: resources live ~LAB_HOURS then are
+# destroyed. Infracost prices monthly (730h); scale with: cost_run = monthly * LAB_HOURS / 730.
+# Values below are the lab traffic assumptions (see docs/runbooks/day3-aws-lab.md).
+version: 0.1
+resource_usage:
+  module.network.aws_nat_gateway.this:
+    monthly_data_processed_gb: 5
+  module.network.aws_cloudwatch_log_group.flow:
+    storage_gb: 1
+    monthly_data_ingested_gb: 1
+  module.eks.aws_cloudwatch_log_group.cluster:
+    storage_gb: 1
+    monthly_data_ingested_gb: 2
+  module.secrets.aws_secretsmanager_secret.runtime:
+    monthly_requests: 10000
+  module.kms.aws_kms_key.this:
+    monthly_requests: 20000
+  module.rds.aws_db_instance.this:
+    monthly_standard_io_requests: 100000
+    additional_backup_storage_gb: 0

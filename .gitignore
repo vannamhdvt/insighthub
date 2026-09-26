@@ -26,6 +26,13 @@ yarn-error.log*
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+# Non-secret per-environment settings are reviewed source (secrets live in Secrets Manager).
+!infra/envs/*.tfvars
+# Plans contain secret values: never commit them.
+*.tfplan
+tfplan*
+# Local backend configs (bucket/account ids) stay out of the fingerprinted tree.
+*.s3.tfbackend
 
 # --- IDE / OS ---
 .vscode/

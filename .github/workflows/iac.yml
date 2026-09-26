@@ -1,0 +1,484 @@
+# Day 3 IaC + deploy pipeline (3-layer defense: AI generate -> human review -> policy gate).
+#
+#   PR / push:  fmt -> lint -> security-scan -> policy-check -> plan -> cost-estimate
+#   main/dispatch: apply (environment approval) -> build-images (matrix) -> deploy -> smoke
+#
+# AWS access is OIDC only (no long-lived keys). Required repository settings are
+# listed in docs/runbooks/day3-aws-lab.md (vars AWS_REGION, TF_STATE_BUCKET,
+# TF_STATE_KMS_KEY, AWS_PLAN_ROLE_ARN, ECR_REGISTRY, LAB_ADMIN_ROLE_ARN,
+# INGRESS_HOST, ACME_EMAIL; AWS_APPLY_ROLE_ARN; secret
+# INFRACOST_API_KEY; optional secret ANTHROPIC_API_KEY + var AI_EXPLAIN_MODEL).
+name: iac
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - "api/**"
+      - "web/**"
+      - "ingestion-worker/**"
+      - "tests/milestones/day3/**"
+      - "infra/ci/render-deployment.sh"
+      - ".github/workflows/iac.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "api/**"
+      - "web/**"
+      - "ingestion-worker/**"
+      - ".github/workflows/iac.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging]
+        default: dev
+      apply:
+        description: Apply + deploy after plan (requires environment approval)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per environment at a time; state is also protected by the S3 lockfile.
+  group: iac-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.13.3
+  TFLINT_VERSION: v0.59.1
+  CHECKOV_VERSION: 3.3.19
+  CONFTEST_VERSION: 0.62.0
+  HELM_VERSION: v3.19.0
+  TF_ENV: ${{ inputs.environment || 'dev' }}
+  # Must equal Terraform var.name_prefix: shared DO2603 account, per-student names.
+  NAME_PREFIX: do2603-namtv
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  fmt:
+    name: fmt + validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Cache providers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-providers-${{ hashFiles('infra/.terraform.lock.hcl', 'infra/bootstrap/.terraform.lock.hcl') }}
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra
+      - name: terraform validate (root, bootstrap)
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          for dir in infra infra/bootstrap; do
+            terraform -chdir="$dir" init -backend=false -lockfile=readonly
+            terraform -chdir="$dir" validate -no-color
+          done
+
+  lint:
+    name: tflint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+      - name: Cache tflint plugins
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ hashFiles('infra/.tflint.hcl') }}
+      - name: tflint --recursive (0 warnings)
+        working-directory: infra
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init --config "$PWD/.tflint.hcl"
+          tflint --recursive --config "$PWD/.tflint.hcl" --minimum-failure-severity=warning --format compact
+
+  security-scan:
+    name: checkov
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/workflows/iac.yml
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install checkov
+        run: pip install "checkov==${CHECKOV_VERSION}"
+      # No soft-fail: every failed check breaks the build. Justified skips are
+      # inline (#checkov:skip / checkov.io/skipN annotations) and reviewed in PR.
+      - name: checkov -d infra (terraform + helm)
+        run: |
+          mkdir -p reports
+          checkov -d infra --quiet --compact -o cli -o junitxml --output-file-path console,reports/checkov-junit.xml
+      - name: Upload checkov report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checkov-report
+          path: reports/checkov-junit.xml
+          retention-days: 14
+
+  policy-check:
+    name: policy (conftest) + chart tests + verification-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Branch head (not the PR merge commit) so the fingerprint matches the local checkout.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install conftest + test deps
+        run: |
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar xz -C /usr/local/bin conftest
+          pip install --require-hashes -r scripts/requirements-verification.txt
+      - name: Rego unit tests + milestone tests
+        run: |
+          conftest verify --policy infra/policies/terraform
+          python -m pytest -c /dev/null -p no:cacheprovider tests/milestones/day3 -v
+      - name: helm lint
+        run: |
+          helm lint infra/helm/insighthub -f infra/helm/insighthub/values-local.yaml
+          helm lint infra/helm/insighthub -f infra/helm/insighthub/values-${TF_ENV}.yaml --set ingress.tls.acmeEmail=ci@example.com
+      # Binds this source tree to the exact manifest that deploy installs.
+      - name: Render deployment + source manifest
+        env:
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY || 'unset.dkr.ecr.invalid' }}
+          INGRESS_HOST: ${{ vars.INGRESS_HOST || 'insighthub-dev.example.com' }}
+          ACME_EMAIL: ${{ vars.ACME_EMAIL || 'ops@example.com' }}
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: infra/ci/render-deployment.sh "$TF_ENV" "$ECR_REGISTRY" "$IMAGE_TAG" "$INGRESS_HOST" "$ACME_EMAIL" evidence/day3
+      - name: Upload verification-source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verification-source
+          path: |
+            evidence/day3/source-manifest.json
+            evidence/day3/deployment-*.yaml
+          retention-days: 30
+
+  plan:
+    name: plan (${{ inputs.environment || 'dev' }})
+    needs: [fmt, lint, security-scan, policy-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-session-name: gha-plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Install conftest
+        run: curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar xz -C /usr/local/bin conftest
+      - name: terraform init (S3 backend, native lock)
+        working-directory: infra
+        run: |
+          terraform init -lockfile=readonly \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=insighthub/${TF_ENV}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
+      - name: terraform plan
+        id: plan
+        working-directory: infra
+        env:
+          TF_VAR_cluster_admin_principal_arns: '["${{ vars.AWS_APPLY_ROLE_ARN }}","${{ vars.LAB_ADMIN_ROLE_ARN }}"]'
+          TF_VAR_cluster_viewer_principal_arns: '["${{ vars.AWS_PLAN_ROLE_ARN }}"]'
+        run: |
+          # -lock-timeout waits for a concurrent apply instead of failing instantly.
+          terraform plan -lock-timeout=5m -var-file="envs/${TF_ENV}.tfvars" -out=/tmp/tfplan -no-color
+          terraform show -json /tmp/tfplan > /tmp/tfplan.json
+          # Human-readable plan: sensitive values are redacted by Terraform.
+          terraform show -no-color /tmp/tfplan > /tmp/plan.txt
+          grep -E '^Plan:|No changes' /tmp/plan.txt | tail -1 | tee /tmp/plan-summary.txt
+      - name: Refuse unexpected destroys
+        run: |
+          destroys=$(python3 -c "import json;p=json.load(open('/tmp/tfplan.json'));print(sum('delete' in r['change']['actions'] for r in p.get('resource_changes',[])))")
+          echo "destroy/replace count: $destroys"
+          if [ "$destroys" -gt 0 ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "::error::Plan destroys/replaces $destroys resources. Investigate drift; do not apply."; exit 1
+          fi
+      - name: conftest (org policies on the real plan)
+        run: conftest test --no-color --policy infra/policies/terraform /tmp/tfplan.json | tee /tmp/conftest.txt
+      # tfplan/tfplan.json contain secret values: never uploaded. Only redacted text.
+      - name: Upload redacted plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plan-${{ env.TF_ENV }}
+          path: |
+            /tmp/plan.txt
+            /tmp/conftest.txt
+          retention-days: 7
+      - name: AI explain plan (optional)
+        if: github.event_name == 'pull_request' && vars.AI_EXPLAIN_MODEL != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ vars.AI_EXPLAIN_MODEL }}
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || { echo "ANTHROPIC_API_KEY not set; skipping"; exit 0; }
+          python3 - <<'PY'
+          import json, os, urllib.request
+          plan = open('/tmp/plan.txt').read()[-60000:]
+          prompt = ("You review Terraform plans for an AWS EKS lab (InsightHub). In Vietnamese, "
+                    "summarize in <=12 bullets: what is created/changed/destroyed, security-relevant "
+                    "changes (IAM, public exposure, encryption), cost drivers, and anything a reviewer "
+                    "must check before approving apply. Do not invent resources.\n\n" + plan)
+          body = json.dumps({"model": os.environ["MODEL"], "max_tokens": 1200,
+                             "messages": [{"role": "user", "content": prompt}]}).encode()
+          req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body, headers={
+              "x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
+              "content-type": "application/json"})
+          text = "".join(b.get("text", "") for b in json.load(urllib.request.urlopen(req, timeout=120))["content"])
+          open('/tmp/ai-explain.md', 'w').write(text)
+          PY
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const read = (p) => fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+            const plan = read('/tmp/plan.txt');
+            const tail = plan.length > 55000 ? plan.slice(-55000) : plan;
+            const ai = read('/tmp/ai-explain.md');
+            const body = [
+              `### Terraform plan \`${process.env.TF_ENV}\` — ${read('/tmp/plan-summary.txt').trim()}`,
+              ai ? `#### AI explain (review, not approval)\n${ai}` : '',
+              `<details><summary>conftest</summary>\n\n\`\`\`\n${read('/tmp/conftest.txt')}\n\`\`\`\n</details>`,
+              `<details><summary>plan (sensitive values redacted)</summary>\n\n\`\`\`hcl\n${tail}\n\`\`\`\n</details>`,
+            ].filter(Boolean).join('\n\n');
+            await github.rest.issues.createComment({...context.repo, issue_number: context.issue.number, body});
+
+  cost-estimate:
+    name: infracost
+    needs: [fmt]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: infracost/actions/setup@fb736a8f219195d6efdca58682069b16fe1bc280 # v4.2.0
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+      # Usage file adds lab lifetime (hours), NAT/LB traffic and log volume.
+      - name: infracost breakdown
+        run: |
+          infracost breakdown --path infra \
+            --terraform-var-file "envs/${TF_ENV}.tfvars" \
+            --usage-file infra/infracost-usage.yml \
+            --format json --out-file /tmp/infracost.json
+          infracost output --path /tmp/infracost.json --format table | tee /tmp/infracost.txt
+      - name: Upload cost report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: infracost-${{ env.TF_ENV }}
+          path: |
+            /tmp/infracost.json
+            /tmp/infracost.txt
+          retention-days: 14
+      - name: Infracost PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          infracost comment github --path /tmp/infracost.json \
+            --repo "$GITHUB_REPOSITORY" --pull-request "${{ github.event.pull_request.number }}" \
+            --github-token "$GITHUB_TOKEN" --behavior update
+
+  apply:
+    name: apply (${{ inputs.environment || 'dev' }})
+    needs: [plan, cost-estimate]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.apply)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Manual approval gate: configure required reviewers on this environment.
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          role-session-name: gha-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Install conftest
+        run: curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar xz -C /usr/local/bin conftest
+      - name: init + plan + policy + apply the same plan
+        working-directory: infra
+        env:
+          TF_VAR_cluster_admin_principal_arns: '["${{ vars.AWS_APPLY_ROLE_ARN }}","${{ vars.LAB_ADMIN_ROLE_ARN }}"]'
+          TF_VAR_cluster_viewer_principal_arns: '["${{ vars.AWS_PLAN_ROLE_ARN }}"]'
+        run: |
+          terraform init -lockfile=readonly \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=insighthub/${TF_ENV}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
+          terraform plan -lock-timeout=5m -var-file="envs/${TF_ENV}.tfvars" -out=/tmp/tfplan -no-color
+          terraform show -json /tmp/tfplan > /tmp/tfplan.json
+          conftest test --no-color --policy policies/terraform /tmp/tfplan.json
+          terraform apply -lock-timeout=5m -no-color /tmp/tfplan
+          rm -f /tmp/tfplan /tmp/tfplan.json
+
+  build-images:
+    name: build ${{ matrix.service }}
+    needs: [apply]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - service: api
+            context: api
+            dockerfile: api/Dockerfile
+          - service: ingestion-worker
+            context: .
+            dockerfile: ingestion-worker/Dockerfile
+          - service: web
+            context: web
+            dockerfile: web/Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          role-session-name: gha-build-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          tags: ${{ vars.ECR_REGISTRY }}/${{ env.NAME_PREFIX }}-${{ env.TF_ENV }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    name: helm deploy + smoke
+    needs: [build-images, policy-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: kubeconfig
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "${NAME_PREFIX}-${TF_ENV}"
+      - name: Resolve ingress host
+        run: |
+          lb=$(kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "NLB: $lb"
+          if [ -z "${{ vars.INGRESS_HOST }}" ]; then
+            ip=$(getent ahostsv4 "$lb" | awk 'NR==1{print $1}')
+            echo "::error::Set repository variable INGRESS_HOST (e.g. ${ip//./-}.sslip.io or a DNS name CNAME'd to $lb) and re-run."
+            exit 1
+          fi
+      # Same flags as the verification-source render => deployed manifest == artifact.
+      - name: helm upgrade --install
+        env:
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
+          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+        run: |
+          helm upgrade --install insighthub infra/helm/insighthub \
+            --namespace "insighthub-${TF_ENV}" \
+            -f "infra/helm/insighthub/values-${TF_ENV}.yaml" \
+            --set "images.api.repository=${ECR_REGISTRY}/${NAME_PREFIX}-${TF_ENV}/api" \
+            --set "images.worker.repository=${ECR_REGISTRY}/${NAME_PREFIX}-${TF_ENV}/ingestion-worker" \
+            --set "images.web.repository=${ECR_REGISTRY}/${NAME_PREFIX}-${TF_ENV}/web" \
+            --set "images.api.tag=${GITHUB_SHA}" --set "images.worker.tag=${GITHUB_SHA}" --set "images.web.tag=${GITHUB_SHA}" \
+            --set "ingress.host=${INGRESS_HOST}" --set "ingress.tls.acmeEmail=${ACME_EMAIL}" \
+            --wait --timeout 10m
+          kubectl -n "insighthub-${TF_ENV}" get deploy,pods,ingress,certificate -o wide
+      - name: Wait for TLS certificate
+        run: kubectl -n "insighthub-${TF_ENV}" wait certificate/insighthub-tls --for=condition=Ready --timeout=5m
+      - name: Smoke (HTTPS healthz/readyz -> upload -> ready -> chat)
+        run: |
+          python3 scripts/verify.py smoke --api-url "https://${{ vars.INGRESS_HOST }}" --web-url "https://${{ vars.INGRESS_HOST }}" --json | tee /tmp/smoke.json
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-${{ env.TF_ENV }}
+          path: /tmp/smoke.json
+          retention-days: 30
