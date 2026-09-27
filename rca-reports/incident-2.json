@@ -1,0 +1,79 @@
+{
+  "incident_id": "incident-2",
+  "started_at": "2026-09-27T15:21:00Z",
+  "ended_at": "2026-09-27T15:45:00Z",
+  "summary": "Deployment insighthub-ingestion-worker (namespace insighthub-local) bị đưa spec.replicas về 0 trong 10 phút, từ 2026-09-27T15:31:00Z tới 15:41:00Z [Kubernetes/kube-state-metrics qua Prometheus: kube_deployment_spec_replicas], trùng khớp injected_at=15:30:50Z và recovered_at=15:40:52Z trong evidence. Trong lúc không có consumer, một đợt POST /documents tăng đột biến 0.21→0.544 req/s tại 15:32:00Z [Prometheus: sum by(method) rate(insighthub_http_requests_total[2m])] cùng traffic nền khiến insighthub:queue_backlog tăng tuyến tính từ 0 (15:31:00Z) lên đỉnh 40 (15:41:00Z) [Prometheus]. Alert InsightHubQueueBacklogAnomaly fire lúc 15:34:00Z, 190s sau injected_at. Khi replicas được scale lại về 1 lúc 15:41:00Z (pod mới insighthub-ingestion-worker-bf7bb49f8-796rf, cùng ReplicaSet hash bf7bb49f8 với pod cũ r4sbh — không phát sinh revision mới) [Kubernetes], backlog được xử lý hết và về 0 trong vòng ~1 phút, hệ thống hồi phục hoàn toàn lúc 15:45:00Z.",
+  "root_cause": "Ingestion-worker Deployment bị giảm spec.replicas từ 1 xuống 0 trong khoảng 2026-09-27T15:31:00Z–15:41:00Z [Kubernetes: kube_deployment_spec_replicas, kube_deployment_status_replicas_available{deployment=\"insighthub-ingestion-worker\"} qua Prometheus], loại bỏ toàn bộ consumer của Redis/ARQ queue trong khi POST /documents vẫn tiếp diễn (rate method=POST tăng 0.21→0.544 req/s lúc 15:32:00Z, đúng thời điểm insighthub:queue_backlog nhảy từ 0 lên 31 [Prometheus]), khiến job dồn ứ tới 40 job. Không có bằng chứng lỗi xử lý: p95 job duration (histogram_quantile 0.95 insighthub_worker_job_duration_seconds_bucket) vẫn ~0.095s ổn định trước/sau downtime, và rate(insighthub_ingestion_errors_total[2m])=0 xuyên suốt cửa sổ [Prometheus]. kube_pod_container_status_restarts_total của container ingestion-worker/api = 0 suốt cửa sổ, nên đây không phải crash-loop mà là thay đổi replicas có chủ đích (spec đổi trước status, không phải OOMKill). Tác nhân cụ thể đã gọi lệnh scale (chaos script hay thao tác thủ công) chưa xác minh được vì Kubernetes Events của khung giờ 15:31–15:41Z đã hết hạn lưu trữ (~1h) tính tới thời điểm điều tra (~17:08Z).",
+  "hypotheses": [
+    "Giả thuyết: Ingestion-worker Deployment bị scale xuống 0 replicas gây gián đoạn tiêu thụ queue. Evidence ủng hộ: kube_deployment_spec_replicas{deployment=\"insighthub-ingestion-worker\"} chuyển 1→0 tại 2026-09-27T15:31:00Z và giữ 0 tới 15:41:00Z [Prometheus/kube-state-metrics]; kube_deployment_status_replicas_available đi theo đúng pattern; pod insighthub-ingestion-worker-bf7bb49f8-r4sbh biến mất khỏi kube-state-metrics sau 2026-09-27T15:30:30Z, pod mới insighthub-ingestion-worker-bf7bb49f8-796rf vào phase Running=1 từ 15:41:00Z, cùng ReplicaSet hash bf7bb49f8 [Kubernetes] (đúng ghi chú: scale replicas không tạo ReplicaSet/revision mới). Kết luận: xác nhận, đây là nguyên nhân gốc.",
+    "Giả thuyết: Backlog tăng do burst upload tài liệu (POST /documents) trùng thời điểm worker offline, không phải do worker xử lý chậm. Evidence ủng hộ: sum by(method) rate(insighthub_http_requests_total[2m]) cho method=POST nhảy từ baseline ~0.21-0.22 req/s lên 0.544 req/s tại 2026-09-27T15:32:00Z [Prometheus], đúng lúc insighthub:queue_backlog nhảy từ 0 lên 31 [Prometheus]; rate method=GET không đổi (~0.333 req/s suốt cửa sổ) nên loại trừ khả năng insighthub:http_requests:rate5m tăng là do web poll dồn dập. histogram_quantile(0.95, rate(insighthub_worker_job_duration_seconds_bucket[5m])) vẫn ~0.095s trước/sau downtime (không có mẫu khi worker=0 vì không job nào chạy), không có dấu hiệu chậm xử lý. Kết luận: xác nhận, backlog là hệ quả của mất consumer cộng traffic upload tiếp diễn, không phải do process_document() chậm.",
+    "Giả thuyết: Sự cố liên quan tới việc pod insighthub-api bị Unhealthy/restart quan sát thấy trong Kubernetes Events. Evidence: events_list ghi nhận insighthub-api pod (insighthub-api-6d64b9dd5d-zwjzr, insighthub-api-747785dfd8-pdfh9) bị 'Readiness probe failed: ... connection refused' và bị Scheduled/Killed tại 2026-09-27T16:21:07Z và 16:31:14–21Z [Kubernetes] — các mốc này nằm SAU ended_at (15:45:00Z) của incident-2 khoảng 36-50 phút, ngoài khung injected_at (15:30:50Z)–recovered_at (15:40:52Z). K8s Events chỉ giữ ~1h nên event đúng khung 15:31–15:41Z đã hết hạn tính tới lúc điều tra (~17:08Z); thiếu event ở đây không phải bằng chứng phủ định. Nhưng kube_pod_container_status_restarts_total{container=\"api\"}=0 và kube_deployment_status_replicas_available{deployment=\"insighthub-api\"}=1 liên tục suốt cửa sổ 15:18–15:48Z [Prometheus] cho thấy tầng api không hề gián đoạn trong chính khung giờ incident-2. Kết luận: bác bỏ — sự kiện api restart là một sự kiện xảy ra SAU incident-2, không liên quan, nhiều khả năng là một chaos/test riêng biệt."
+  ],
+  "confidence": {
+    "value": 0.9,
+    "reason": "Root cause có bằng chứng Prometheus trực tiếp và nhất quán: kube_deployment_spec_replicas chuyển 1→0→1 khớp gần như chính xác với injected_at/recovered_at trong evidence, cùng chuỗi pod-phase transitions và cùng ReplicaSet hash; cơ chế backlog tăng được củng cố thêm bởi burst POST /documents đúng thời điểm. Trừ điểm vì: (a) chưa xác minh được tác nhân/lệnh cụ thể đã scale replicas về 0 do K8s Events của khung giờ đó đã hết hạn lưu trữ; (b) chưa xác minh nguồn gốc chính xác của burst POST đầu tiên (loadgen hay upload thật)."
+  },
+  "detection": {
+    "alert": "InsightHubQueueBacklogAnomaly",
+    "first_firing_at": "2026-09-27T15:34:00Z",
+    "detection_seconds": 190
+  },
+  "samples": [
+    {
+      "metric": "insighthub:queue_backlog",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:30:00Z",
+      "value": 0.0,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:queue_backlog",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:40:00Z",
+      "value": 39.0,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:queue_backlog",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:45:00Z",
+      "value": 0.0,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:30:00Z",
+      "value": 0.5482679548493931,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:32:00Z",
+      "value": 0.6592714679901479,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:45:00Z",
+      "value": 0.5480872495648632,
+      "role": "recovery"
+    }
+  ],
+  "remediation": "Đã tự phục hồi trong quá trình quan sát: ingestion-worker Deployment được scale lại về 1 replica lúc 2026-09-27T15:41:00Z [Kubernetes], pod mới Running ngay lập tức, insighthub:queue_backlog xử lý hết và về 0 lúc ~15:42:00Z, hoàn tất trước ended_at=15:45:00Z [Prometheus]. Không cần can thiệp thủ công thêm để khôi phục dữ liệu vì không có insighthub_ingestion_errors_total nào phát sinh (không mất job, chỉ trễ xử lý). Việc cần làm tiếp: xác minh actor/script nào đã đổi kube_deployment_spec_replicas về 0 (chaos script trong scripts/chaos/ hay thao tác kubectl thủ công) — hiện 'chưa xác minh' vì K8s Events đã hết hạn.",
+  "prevention": "Thêm alert riêng trên kube_deployment_status_replicas_available{deployment=\"insighthub-ingestion-worker\"} == 0 (hoặc spec_replicas < 1) thay vì chỉ dựa vào anomaly trên queue_backlog, để giảm detection_seconds hiện tại (190s) xuống gần tức thời khi consumer mất hoàn toàn. Đẩy Kubernetes Events sang long-term store (vd. Loki/loki-stack) để RCA sau hơn 1h vẫn truy được nguồn gốc lệnh scale. Cân nhắc PodDisruptionBudget hoặc chạy ingestion-worker với replicas>=2 để một lần scale-down/pod-loss không loại bỏ 100% consumer capacity. Nếu đây là chaos test có chủ đích, ghi audit log/annotation riêng khi CHAOS_* kích hoạt để phân biệt rõ với sự cố thật khi làm RCA."
+}

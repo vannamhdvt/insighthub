@@ -1,6 +1,8 @@
 """Provider generation with explicit fixture labeling and usage provenance."""
 
 import json
+import random
+import time
 from urllib.parse import quote
 
 from app.core.config import get_settings
@@ -106,8 +108,17 @@ def _real_generate(question, contexts, settings):
     raise ProviderError()
 
 
+def _inject_chaos(settings) -> None:
+    """Lab-only fault injection (CHAOS_* env). Both knobs default to off."""
+    if settings.chaos_llm_delay_seconds > 0:
+        time.sleep(settings.chaos_llm_delay_seconds)
+    if settings.chaos_llm_error_rate > 0 and random.random() < settings.chaos_llm_error_rate:
+        raise ProviderError()
+
+
 def generate(question: str, contexts: list[dict]) -> dict:
     settings = get_settings()
+    _inject_chaos(settings)
     try:
         if settings.rag_mode == "fixture":
             snippet = (

@@ -41,6 +41,8 @@ trong hai là upload trả `202` mà không ai xử lý.
 Deploy (Day 3): Terraform `infra/` (EKS, RDS pgvector, ElastiCache, IRSA, Secrets
 Manager) + Helm `infra/helm/insighthub`. Trên EKS postgres/redis là managed service,
 không phải pod; secret vào pod qua IRSA + Secrets Store CSI. Spec: `infra/SPEC.md`.
+Observability (Day 4): api `/metrics`, worker `:9101/metrics`, redis/postgres exporter, blackbox probe
+web; rules + dashboard ở `observability/`. Fault injection `CHAOS_*` mặc định tắt.
 
 ## Conventions
 
@@ -79,6 +81,7 @@ chậm treo cả API.
 * IaC gate: `terraform fmt -check -recursive infra`, `tflint --recursive`,
   `checkov -d infra`, `conftest test --policy infra/policies/terraform <plan.json>`
 * Runbook AWS/teardown: `docs/runbooks/day3-aws-lab.md`
+* Day 4 observability/drill/RCA: `docs/runbooks/day4-observability.md`; `promtool test rules observability/rules/insighthub-rules.test.yaml`
 
 Tái hiện failure case:
 

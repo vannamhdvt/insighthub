@@ -21,15 +21,31 @@ make ARQ repeat the same outcome.
 import asyncio
 import datetime as dt
 import json
+import os
 import sys
+import time
 
 from arq.connections import RedisSettings
+from prometheus_client import Counter, Histogram, start_http_server
 
 from app.core import staging
 from app.core.config import get_settings
 from app.services.ingestion import process_document
 
 TASK_NAME = "ingest_document"
+
+# Day 4: the worker has no HTTP server, so it exposes its own /metrics endpoint.
+# app.core.metrics counters incremented inside process_document() (for example
+# insighthub_ingestion_errors_total) are served from the same default registry.
+METRICS_PORT = int(os.environ.get("WORKER_METRICS_PORT", "9101"))
+worker_jobs_total = Counter(
+    "insighthub_worker_jobs_total", "Ingestion jobs finished by outcome", ["status"]
+)
+worker_job_duration = Histogram(
+    "insighthub_worker_job_duration_seconds",
+    "Ingestion job duration (load + process), success or failure",
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
+)
 
 
 def now_rfc3339() -> str:
@@ -51,6 +67,7 @@ def log(event: str, **fields) -> None:
 async def ingest_document(ctx, document_id: int, filename: str, digest: str) -> dict:
     """Process one queued document. Returns a small, loggable result."""
     log("ingestion_started", document_id=document_id, filename=filename)
+    started = time.perf_counter()
     try:
         # Blocking file and database work stays off the event loop, otherwise one
         # slow document stalls every other job in this worker.
@@ -60,6 +77,8 @@ async def ingest_document(ctx, document_id: int, filename: str, digest: str) -> 
         )
     except Exception as exc:
         code = getattr(exc, "code", "internal_error")
+        worker_job_duration.observe(time.perf_counter() - started)
+        worker_jobs_total.labels("failed").inc()
         log(
             "ingestion_completed",
             document_id=document_id,
@@ -70,6 +89,8 @@ async def ingest_document(ctx, document_id: int, filename: str, digest: str) -> 
         return {"document_id": document_id, "status": "failed", "error_code": code}
 
     await asyncio.to_thread(staging.discard, document_id)
+    worker_job_duration.observe(time.perf_counter() - started)
+    worker_jobs_total.labels("ready").inc()
     log(
         "ingestion_completed",
         document_id=document_id,
@@ -87,7 +108,13 @@ async def ingest_document(ctx, document_id: int, filename: str, digest: str) -> 
 
 async def startup(ctx) -> None:
     settings = get_settings()
-    log("worker_started", mode=settings.rag_mode, upload_dir=settings.upload_dir)
+    start_http_server(METRICS_PORT)
+    log(
+        "worker_started",
+        mode=settings.rag_mode,
+        upload_dir=settings.upload_dir,
+        metrics_port=METRICS_PORT,
+    )
 
 
 async def shutdown(ctx) -> None:

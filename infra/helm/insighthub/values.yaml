@@ -99,3 +99,24 @@ networkPolicy:
 
 localDependencies:
   enabled: false
+
+# Day 4: Prometheus Operator objects + exporters so all five components are scraped.
+# Requires kube-prometheus-stack (CRDs ServiceMonitor/Probe) and blackbox exporter.
+monitoring:
+  enabled: false
+  interval: 30s
+  # Must match kube-prometheus-stack serviceMonitorSelector (release label).
+  selectorLabels:
+    release: kube-prometheus-stack
+  namespace: monitoring
+  exporters:
+    redis:
+      image: oliver006/redis_exporter:v1.92.0@sha256:ca3abd5f19da6c87e96038ba08aaa3dfaab34dc649834584c4d6880b05952fef
+      # ARQ default queue (zset); exposes redis_key_size{key="arq:queue"} = queue depth.
+      checkSingleKeys: db0=arq:queue
+    postgres:
+      image: prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+  webProbe:
+    # prometheus-blackbox-exporter service installed in the monitoring namespace
+    proberUrl: prometheus-blackbox-exporter.monitoring.svc:9115
+    module: http_2xx

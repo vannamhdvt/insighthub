@@ -40,6 +40,9 @@ spec:
         - name: ingestion-worker
           image: {{ include "insighthub.image" .Values.images.worker }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: 9101
           envFrom:
             - configMapRef:
                 name: {{ include "insighthub.fullname" . }}-config
@@ -74,3 +77,21 @@ spec:
         - name: tmp
           emptyDir: {sizeLimit: 256Mi}
         {{- include "insighthub.csiVolume" . | nindent 8 }}
+---
+# Day 4: target for the worker ServiceMonitor (the worker has no HTTP API).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "insighthub.fullname" . }}-ingestion-worker
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingestion-worker
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "insighthub.selector" (dict "root" . "component" "ingestion-worker") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: metrics

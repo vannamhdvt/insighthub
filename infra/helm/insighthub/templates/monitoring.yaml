@@ -1,0 +1,186 @@
+{{- if .Values.monitoring.enabled }}
+{{- $name := include "insighthub.fullname" . }}
+{{- $m := .Values.monitoring }}
+# Day 4: five components observed.
+#   api       -> /metrics (HTTP RED, RAG/LLM latency, tokens, documents)
+#   worker    -> :9101/metrics (jobs, duration, ingestion errors)
+#   redis     -> redis_exporter (up, clients, memory, ARQ queue depth)
+#   postgres  -> postgres_exporter (up, connections, db size)
+#   web       -> blackbox probe of /api/health (Next.js exposes no metrics)
+# On EKS redis/postgres are ElastiCache/RDS: the same exporters point at them.
+{{- range $svc := list "api" "ingestion-worker" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-{{ $svc }}
+  labels:
+    {{- include "insighthub.labels" $ | nindent 4 }}
+    {{- toYaml $m.selectorLabels | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" $ "component" $svc) | nindent 6 }}
+  endpoints:
+    - port: {{ if eq $svc "api" }}http{{ else }}metrics{{ end }}
+      path: /metrics
+      interval: {{ $m.interval }}
+{{- end }}
+{{- range $exp := list (dict "name" "redis-exporter" "port" 9121 "image" $m.exporters.redis.image "env" "REDIS_URL") (dict "name" "postgres-exporter" "port" 9187 "image" $m.exporters.postgres.image "env" "DATABASE_URL") }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-{{ $exp.name }}
+  labels:
+    {{- include "insighthub.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $exp.name }}
+  annotations:
+    {{- include "insighthub.checkovWorkload" $ | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" $ "component" $exp.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "insighthub.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $exp.name }}
+    spec:
+      serviceAccountName: {{ $.Values.serviceAccount.name }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "insighthub.podSecurityContext" (dict "uid" 65534) | nindent 8 }}
+      containers:
+        - name: exporter
+          image: {{ $exp.image }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ $exp.port }}
+          env:
+            {{- if eq $exp.name "redis-exporter" }}
+            - name: REDIS_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "insighthub.runtimeSecretName" $ }}
+                  key: REDIS_URL
+            - name: REDIS_EXPORTER_CHECK_SINGLE_KEYS
+              value: {{ $m.exporters.redis.checkSingleKeys | quote }}
+            {{- else }}
+            - name: DATA_SOURCE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "insighthub.runtimeSecretName" $ }}
+                  key: DATABASE_URL
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            {{- include "insighthub.containerSecurityContext" $ | nindent 12 }}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          {{- if and (eq $.Values.runtimeSecret.source "aws") (not $.Values.localDependencies.enabled) }}
+          volumeMounts:
+            {{- include "insighthub.csiMount" $ | nindent 12 }}
+          {{- end }}
+      {{- if and (eq $.Values.runtimeSecret.source "aws") (not $.Values.localDependencies.enabled) }}
+      volumes:
+        {{- include "insighthub.csiVolume" $ | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-{{ $exp.name }}
+  labels:
+    {{- include "insighthub.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $exp.name }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" $ | nindent 4 }}
+spec:
+  selector:
+    {{- include "insighthub.selector" (dict "root" $ "component" $exp.name) | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ $exp.port }}
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-{{ $exp.name }}
+  labels:
+    {{- include "insighthub.labels" $ | nindent 4 }}
+    {{- toYaml $m.selectorLabels | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "insighthub.selector" (dict "root" $ "component" $exp.name) | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: {{ $m.interval }}
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: {{ $name }}-web
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+    {{- toYaml $m.selectorLabels | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  jobName: {{ $name }}-web
+  interval: {{ $m.interval }}
+  module: {{ $m.webProbe.module }}
+  prober:
+    url: {{ $m.webProbe.proberUrl }}
+  targets:
+    staticConfig:
+      static:
+        - http://{{ $name }}-web.{{ .Release.Namespace }}.svc:3000/api/health
+      labels:
+        component: web
+{{- if .Values.networkPolicy.enabled }}
+---
+# Default-deny ingress also applies to scrapes: allow the monitoring namespace
+# (Prometheus, blackbox exporter) to reach metrics ports and the web health probe.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-allow-monitoring
+  labels:
+    {{- include "insighthub.labels" . | nindent 4 }}
+  annotations:
+    {{- include "insighthub.checkovNamespace" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $m.namespace }}
+      ports:
+        - port: 8000
+        - port: 9101
+        - port: 9121
+        - port: 9187
+        - port: 3000
+{{- end }}
+{{- end }}

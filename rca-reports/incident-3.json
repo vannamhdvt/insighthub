@@ -1,0 +1,103 @@
+{
+  "incident_id": "incident-3",
+  "started_at": "2026-09-27T16:12:00Z",
+  "ended_at": "2026-09-27T16:36:00Z",
+  "summary": "Từ 2026-09-27T16:21:06Z (injected_at) đến 2026-09-27T16:31:14Z (recovered_at), namespace insighthub-local bị error-burst trên insighthub-api. [Prometheus] insighthub:http_errors:ratio_rate5m{namespace=\"insighthub-local\"} = 0 tại 2026-09-27T16:21:00Z (baseline), tăng lên đỉnh 0.25 tại 2026-09-27T16:29:00Z (peak), về 0 tại 2026-09-27T16:36:00Z (recovery). [Prometheus] insighthub:http_requests:rate5m gần như không đổi (baseline 0.5444, peak 0.5482, recovery 0.4666 req/s) — hệ thống không mất traffic, chỉ tăng tỉ lệ lỗi trên một route cụ thể. [Prometheus] insighthub:llm_latency_seconds:p95_5m giữ nguyên 0.2375s suốt baseline/peak/recovery — không có dấu hiệu tăng độ trễ đi kèm. [Kubernetes] Deployment insighthub-api có sự kiện ScalingReplicaSet 'Scaled up replica set insighthub-api-6d64b9dd5d from 0 to 1' lúc 2026-09-27 23:21:07 +07:00 (=2026-09-27T16:21:07Z), lệch injected_at đúng 1 giây, và 'Scaled up replica set insighthub-api-747785dfd8 from 0 to 1' lúc 2026-09-27 23:31:14 +07:00 (=2026-09-27T16:31:14Z), trùng khớp tuyệt đối với recovered_at. [Kubernetes] ReplicaSet insighthub-api-6d64b9dd5d (revision 8, tồn tại đúng khung giờ sự cố) có container 'api' với env CHAOS_LLM_ERROR_RATE=\"0.6\" — không có trong ReplicaSet insighthub-api-747785dfd8 (revision 9, RS hiện tại, không có CHAOS_*).",
+  "root_cause": "Fault injection CHAOS_LLM_ERROR_RATE=0.6 được rollout vào Deployment insighthub-api qua ReplicaSet mới insighthub-api-6d64b9dd5d (revision 8) lúc 2026-09-27T16:21:07Z [Kubernetes: event ScalingReplicaSet]. Env này làm route POST /chat (route gọi LLM) trả lỗi giả lập ~60%: [Prometheus] insighthub_http_requests_total tại 2026-09-27T16:29:00Z trên pod insighthub-api-6d64b9dd5d-zwjzr cho exported_endpoint=\"/chat\": status=\"502\"=53 (cumulative) so với status=\"200\"=33; các route khác trên cùng pod (/readyz=200:89, /healthz=200:44, /metrics=200:14, /documents=202:7) đều không lỗi. Vì insighthub:http_errors:ratio_rate5m gộp toàn bộ route (bao gồm health/readiness probe tần suất cao không đi qua LLM), tỉ lệ lỗi tổng quan sát được chỉ đạt đỉnh 0.25 thay vì 0.6 — pha loãng bởi traffic không chạm LLM. Sự cố tự kết thúc khi Deployment rollback về ReplicaSet insighthub-api-747785dfd8 (không có CHAOS_*) lúc 2026-09-27T16:31:14Z, tái sử dụng RS cũ đúng theo cơ chế K8s rollback (revision-history=\"3,5,7\" trên RS này, nay là revision 9) chứ không tạo RS mới.",
+  "hypotheses": [
+    "H1 - CHAOS_LLM_ERROR_RATE=0.6 trên ReplicaSet mới là nguyên nhân gốc: Ủng hộ — [Kubernetes] insighthub-api-6d64b9dd5d (revision 8) có container env CHAOS_LLM_ERROR_RATE=\"0.6\"; event Deployment 'Scaled up replica set insighthub-api-6d64b9dd5d from 0 to 1' @2026-09-27T16:21:07Z lệch injected_at (16:21:06Z) 1 giây; [Prometheus] insighthub_http_requests_total @2026-09-27T16:29:00Z trên pod đó cho /chat status=502 (53) cạnh status=200 (33), trong khi mọi route khác (/readyz, /healthz, /metrics, /documents) đều 100% thành công; insighthub:http_errors:ratio_rate5m đi từ 0 (baseline 16:21:00Z) lên 0.25 (peak 16:29:00Z) đúng trong cửa sổ pod này tồn tại (up{pod=\"insighthub-api-6d64b9dd5d-zwjzr\"}=1 từ 16:22:00Z–16:31:00Z). Bác bỏ — không có. Kết luận: CONFIRMED, là root cause chính.",
+    "H2 - Remediation là rollback Deployment về ReplicaSet cũ không mang CHAOS_*, không phải tự phục hồi: Ủng hộ — [Kubernetes] event 'Scaled up replica set insighthub-api-747785dfd8 from 0 to 1' @2026-09-27T16:31:14Z và 'Scaled down replica set insighthub-api-6d64b9dd5d from 1 to 0' @2026-09-27T16:31:21Z trùng khớp tuyệt đối recovered_at=2026-09-27T16:31:14Z; ReplicaSet insighthub-api-747785dfd8 (revision 9, revision-history=\"3,5,7\") không có CHAOS_LLM_ERROR_RATE trong pod template; [Prometheus] up{pod=\"insighthub-api-747785dfd8-pdfh9\"} xuất hiện từ 16:32:00Z, insighthub:http_errors:ratio_rate5m về 0 tại 16:36:00Z. Bác bỏ — không có Event nào ghi rõ tác nhân (người vận hành chạy `kubectl rollout undo`, script chaos tự rollback, hay Helm re-apply); nguồn gốc lệnh rollback là 'chưa xác minh'. Kết luận: CONFIRMED về cơ chế (rollback tái sử dụng RS cũ theo đúng lưu ý #5), nhưng tác nhân kích hoạt rollback chưa xác minh.",
+    "H3 - Alert InsightHubErrorRateAnomaly detect đúng nhưng band avg_1h/stddev_1h chưa 'chín' do rule mới sửa ~13 phút trước injected_at: Ủng hộ — [Prometheus] insighthub:http_errors:ratio_rate5m:avg_1h và :stddev_1h đều = 0 liên tục từ 16:01:00Z đến 16:32:00Z (toàn bộ các điểm baseline, injected_at, và cả lúc firing @16:26:00Z), chỉ bắt đầu >0 từ 16:33:00Z (avg_1h=0.00425, stddev_1h=0.01426) trở đi khi mẫu lỗi lọt vào cửa sổ 1h; điều này khớp với lưu ý đề bài rằng rule apply lúc ~16:08Z nên tại thời điểm sự cố band chỉ có ~13 phút dữ liệu nền (toàn 0). insighthub:http_errors:ratio_rate5m tại mọi điểm 16:05:00Z-16:20:00Z (12 điểm liên tiếp) đều bằng '0' — nền tuyệt đối sạch. Bác bỏ — alert vẫn firing đúng lúc (pending @16:24:00Z-16:25:00Z, firing @16:26:00Z-16:34:00Z theo ALERTS{alertname=\"InsightHubErrorRateAnomaly\"}), không có false positive/negative quan sát được trong incident này. Kết luận: CONFIRMED hiện tượng band chưa tích lũy đủ 1h, nhưng lần này không gây sai vì nền vốn phẳng tuyệt đối 0 — rủi ro tiềm ẩn cho các lần tới nếu nền có nhiễu tự nhiên khi rule vừa đổi."
+  ],
+  "confidence": 0.93,
+  "detection": {
+    "alert": "InsightHubErrorRateAnomaly",
+    "first_firing_at": "2026-09-27T16:26:00Z",
+    "detection_seconds": 294
+  },
+  "samples": [
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:21:00Z",
+      "value": 0.0,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:29:00Z",
+      "value": 0.25,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:36:00Z",
+      "value": 0.0,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:21:00Z",
+      "value": 0.5444444444444445,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:30:00Z",
+      "value": 0.5481542387508009,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:36:00Z",
+      "value": 0.4666005833333334,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:21:00Z",
+      "value": 0.2375,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:27:00Z",
+      "value": 0.23750000000000002,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:36:00Z",
+      "value": 0.23750000000000002,
+      "role": "recovery"
+    }
+  ],
+  "remediation": "Đã thực hiện: rollback Deployment insighthub-api về ReplicaSet insighthub-api-747785dfd8 (không mang CHAOS_LLM_ERROR_RATE) lúc 2026-09-27T16:31:14Z [Kubernetes: event ScalingReplicaSet], khớp recovered_at. Chuẩn hoá thành runbook: khi InsightHubErrorRateAnomaly firing và component=api, việc đầu tiên là kiểm tra pod template env của ReplicaSet đang chạy (`kubectl get rs -n insighthub-local -o yaml` / Kubernetes MCP resources_get) để phát hiện CHAOS_* còn sót, sau đó `kubectl rollout undo deployment/insighthub-api -n insighthub-local` hoặc tắt CHAOS_* trong values rồi apply lại, không chờ tự phục hồi.",
+  "prevention": "CHAOS_* env (vd CHAOS_LLM_ERROR_RATE, CHAOS_LLM_DELAY_SECONDS — đã thấy cả hai xuất hiện trên các ReplicaSet lịch sử insighthub-api-6d64b9dd5d và insighthub-api-697c94c97b) phải mặc định tắt và chỉ bật qua một giá trị Helm tách biệt (vd `chaos.enabled` gate rõ trong values-local.yaml), kèm label/annotation đánh dấu 'chaos-drill=true' trên Deployment khi bật để dashboard/alert phân biệt drill với sự cố thật, tránh lẫn với AGENTS.md yêu cầu 'Fault injection CHAOS_* mặc định tắt'. Vì recording rule insighthub:http_errors:ratio_rate5m:avg_1h/stddev_1h cần tối thiểu 1h dữ liệu ổn định mới đáng tin, nên sau mỗi lần sửa rule cần chờ đủ 1h hoặc dùng ngưỡng tuyệt đối (absolute floor) song song với band trong giai đoạn band chưa đủ dữ liệu, để không phụ thuộc hoàn toàn vào avg=0/stddev=0 giả tạo. Ghi rõ trong Event/annotation ai/hệ thống nào trigger rollback (hiện 'chưa xác minh') để lần sau audit remediation nhanh hơn."
+}

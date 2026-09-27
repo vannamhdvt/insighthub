@@ -13,7 +13,7 @@ metadata:
 type: Opaque
 stringData:
   # checkov:skip=CKV_SECRET_4:Throwaway local-only credential, same as docker-compose; never rendered for EKS
-  DATABASE_URL: postgresql://insighthub:insighthub@{{ $name }}-postgres:5432/insighthub
+  DATABASE_URL: postgresql://insighthub:insighthub@{{ $name }}-postgres:5432/insighthub?sslmode=disable
   REDIS_URL: redis://{{ $name }}-redis:6379/0
 ---
 apiVersion: apps/v1

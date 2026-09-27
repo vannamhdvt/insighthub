@@ -20,3 +20,5 @@ networkPolicy:
   ingressControllerNamespace: ingress-nginx
 localDependencies:
   enabled: true
+monitoring:
+  enabled: true

@@ -1,0 +1,118 @@
+{
+  "incident_id": "incident-3",
+  "kind": "error-burst",
+  "namespace": "insighthub-local",
+  "started_at": "2026-09-27T16:12:00Z",
+  "ended_at": "2026-09-27T16:36:00Z",
+  "injected_at": "2026-09-27T16:21:06Z",
+  "recovered_at": "2026-09-27T16:31:14Z",
+  "alert": {
+    "name": "InsightHubErrorRateAnomaly",
+    "first_firing_at": "2026-09-27T16:26:00Z",
+    "last_firing_at": "2026-09-27T16:34:00Z",
+    "detection_seconds": 294
+  },
+  "series_summary": [
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "min": 0.0,
+      "max": 0.25,
+      "points": 25
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "min": 0.46367145833333334,
+      "max": 0.5481542387508009,
+      "points": 25
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "min": 0.23749999999999996,
+      "max": 0.23750000000000002,
+      "points": 25
+    }
+  ],
+  "samples": [
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:21:00Z",
+      "value": 0.0,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:29:00Z",
+      "value": 0.25,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:http_errors:ratio_rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:36:00Z",
+      "value": 0.0,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:21:00Z",
+      "value": 0.5444444444444445,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:30:00Z",
+      "value": 0.5481542387508009,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:36:00Z",
+      "value": 0.4666005833333334,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:21:00Z",
+      "value": 0.2375,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:27:00Z",
+      "value": 0.23750000000000002,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T16:36:00Z",
+      "value": 0.23750000000000002,
+      "role": "recovery"
+    }
+  ]
+}
