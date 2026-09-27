@@ -1,0 +1,87 @@
+{
+  "incident_id": "incident-1",
+  "started_at": "2026-09-27T14:51:00Z",
+  "ended_at": "2026-09-27T15:15:00Z",
+  "summary": "insighthub:llm_latency_seconds:p95_5m tăng từ baseline 0.2375s (2026-09-27T15:00:00Z) lên đỉnh 4.875s (2026-09-27T15:06:00Z, giữ nguyên 15:06:00Z-15:11:00Z), tức tăng ~20.5 lần. insighthub:rag_latency_seconds:p95_5m di chuyển giống hệt insighthub:llm_latency_seconds:p95_5m tại mọi mốc thời gian đã truy vấn trong cửa sổ 2026-09-27T14:50:00Z-2026-09-27T15:20:00Z (Prometheus query_range, step 60s), cho thấy độ trễ phát sinh ở tầng gọi LLM dùng chung, không phải riêng tầng truy hồi RAG. Alert InsightHubLLMLatencyAnomaly chuyển pending lúc 2026-09-27T15:03:00Z, firing lúc 2026-09-27T15:05:00Z, hết firing lúc 2026-09-27T15:15:00Z (Prometheus ALERTS query_range, label component=api). Trong cùng cửa sổ, sum(rate(insighthub_http_requests_total[5m])) giữ 0.50-0.55 req/s và insighthub:queue_backlog giữ 0 tại mọi mốc, tức không có tăng tải hay tồn đọng hàng đợi kèm theo. Metric quay lại baseline 0.2375s lúc 2026-09-27T15:16:00Z, sau recovered_at 2026-09-27T15:10:45Z ghi trong evidence, đúng với độ trễ ~5 phút của cửa sổ rolling p95_5m.",
+  "root_cause": "[Nguồn: Prometheus] Độ trễ tăng vọt và đồng bộ tuyệt đối giữa insighthub:llm_latency_seconds:p95_5m và insighthub:rag_latency_seconds:p95_5m (cùng giá trị tại mọi mốc 15:02:00Z-15:15:00Z, ví dụ cả hai = 4.875 tại 2026-09-27T15:06:00Z), cùng lúc http request rate và queue backlog không đổi, chỉ khớp với một độ trễ cố định được thêm vào ngay tại bước gọi LLM (component=api theo nhãn ALERTS), chứ không phải do tăng tải, nghẽn hàng đợi, hay lỗi provider (insighthub:http_errors:ratio_rate5m không có sample nào trong cửa sổ). Độ trễ có bắt đầu (~15:00:38Z theo injected_at trong evidence, khớp điểm p95 bắt đầu tăng lúc 15:02:00Z) và kết thúc (~15:10:45Z theo recovered_at, khớp p95 giảm về baseline lúc 15:16:00Z). [Nguồn: Kubernetes MCP, đã kết nối được] Liệt kê toàn bộ 5 ReplicaSet của deployment/insighthub-api trong namespace insighthub-local kèm annotation deployment.kubernetes.io/revision, revision-history và env pod template: insighthub-api-8d44f877d (revision 1, created 2026-09-25T15:17:44Z, không CHAOS_*); insighthub-api-55d489958 (revision 2, created 2026-09-25T15:30:01Z, không CHAOS_*); insighthub-api-747785dfd8 (revision hiện tại 9, annotation revision-history='3,5,7' — tức RS này đã được TÁI SỬ DỤNG cho các revision 3, 5, 7 trước khi thành 9 — created 2026-09-26T18:16:17Z, không CHAOS_*, đây là pod-template 'sạch'/baseline); insighthub-api-697c94c97b (revision 6, annotation revision-history='4' — RS này cũng đã được tái sử dụng cho revision 4 trước đó — created 2026-09-27T04:33:00Z, cùng ngày với incident; container api VÀ initContainer wait-for-schema đều có env CHAOS_LLM_DELAY_SECONDS=\\\"3\\\" — cờ fault-injection tường minh chèn 3 giây delay); insighthub-api-6d64b9dd5d (revision 8, created 2026-09-27T16:21:07Z — hơn 1 giờ SAU ended_at=15:15:00Z — env CHAOS_LLM_ERROR_RATE=\\\"0.6\\\", một cờ khác/drill riêng biệt xảy ra sau incident này, không liên quan). Mẫu revision xen kẽ baseline(747785dfd8)→chaos(697c94c97b)→baseline→chaos→baseline→chaos khác(6d64b9dd5d) khớp với một kịch bản chaos-drill có chủ đích (thư mục scripts/chaos/ trong repo); CHAOS_LLM_DELAY_SECONDS=3 trên 697c94c97b là cờ DUY NHẤT trong toàn bộ 9 revision khớp đúng loại triệu chứng (delay cố định ở bước gọi LLM) — đây là nghi can cơ chế có khả năng cao nhất. GIỚI HẠN của bằng chứng K8s (đã tự sửa sau review, thay cho kết luận sai trước đó rằng 'không có rollout trùng cửa sổ'): (1) khi rollback về một pod-template-hash đã tồn tại, Kubernetes TÁI SỬ DỤNG ReplicaSet cũ và chỉ tăng annotation revision, không tạo object mới, nên creationTimestamp của insighthub-api-697c94c97b (04:33:00Z, ứng với lần tạo đầu ở revision 4) KHÔNG chứng minh được lần kích hoạt lại ở revision 6 xảy ra đúng 2026-09-27T15:00:38Z-15:10:45Z — nó chỉ chứng minh RS/cờ này tồn tại và được dùng lặp lại cùng ngày với incident; (2) Kubernetes Events API mặc định chỉ giữ ~1 giờ, và tại thời điểm điều tra (đã sang 2026-09-28) event của cửa sổ 2026-09-27T15:00Z-15:11Z đã hết hạn từ lâu, nên việc không còn thấy event ScalingReplicaSet quanh mốc đó KHÔNG phải bằng chứng phủ định, chỉ là dữ liệu đã bị xoá theo TTL. Kết luận: CHAOS_LLM_DELAY_SECONDS=3 trên insighthub-api-697c94c97b là nghi can mạnh và phù hợp nhất với toàn bộ evidence hiện có (Prometheus + Kubernetes), nhưng mốc kích hoạt chính xác trùng khớp 15:00:38Z-15:10:45Z chưa được xác nhận bằng một bản ghi có timestamp trực tiếp (ví dụ `helm history insighthub -n insighthub-local`, CI/CD deploy log, hoặc structured log của api ghi nhận giá trị CHAOS_LLM_DELAY_SECONDS lúc khởi động).",
+  "hypotheses": [
+    "Giả thuyết: Độ trễ cố định bị thêm vào ngay tại bước gọi LLM của component api (không phải do tầng retrieval/RAG riêng lẻ), nghi can cụ thể là cờ fault-injection CHAOS_LLM_DELAY_SECONDS=3 trên pod template của ReplicaSet insighthub-api-697c94c97b (revision 4 và 6). Evidence for (Prometheus): insighthub:llm_latency_seconds:p95_5m: 0.2375 tại 2026-09-27T15:00:00Z (baseline) -> 4.875 tại 2026-09-27T15:06:00Z (peak) (Prometheus query_range 2026-09-27T14:50:00Z/15:20:00Z, step 60s); insighthub:rag_latency_seconds:p95_5m bằng đúng insighthub:llm_latency_seconds:p95_5m tại từng mốc trong cửa sổ 2026-09-27T15:02:00Z-2026-09-27T15:15:00Z, ví dụ cả hai = 4.875 tại 2026-09-27T15:06:00Z (Prometheus query_range); histogram_quantile(0.95, sum(rate(insighthub_llm_call_latency_seconds_bucket[5m])) by (le)) = 4.875 tại 2026-09-27T15:06:00Z (Prometheus instant query), khớp giá trị recording rule -> không phải lỗi recording rule; ALERTS{alertname=\"InsightHubLLMLatencyAnomaly\"}: alertstate=pending từ 2026-09-27T15:03:00Z, alertstate=firing từ 2026-09-27T15:05:00Z đến 2026-09-27T15:15:00Z, label component=\"api\" (Prometheus query_range). Evidence for (Kubernetes): ReplicaSet insighthub-api-697c94c97b (annotation deployment.kubernetes.io/revision=6, revision-history=4; created 2026-09-27T04:33:00Z, cùng ngày với incident) có env CHAOS_LLM_DELAY_SECONDS=\"3\" trên container api và initContainer wait-for-schema — cờ duy nhất trong toàn bộ 5 ReplicaSet/9 revision của deployment/insighthub-api khớp đúng loại triệu chứng (delay cố định ở bước LLM); ConfigMap insighthub-config không chứa CHAOS_* nào (cờ này set trực tiếp ở env container, không qua ConfigMap). Evidence against / open question: chưa xác nhận được mốc kích hoạt CHÍNH XÁC của revision 6 có trùng 2026-09-27T15:00:38Z-15:10:45Z hay không, vì (a) Kubernetes tái sử dụng ReplicaSet khi rollback về cùng pod-template-hash nên creationTimestamp của RS chỉ phản ánh lần tạo đầu tiên (ứng với revision 4), không phản ánh lần kích hoạt lại ở revision 6; (b) Kubernetes Events API mặc định chỉ giữ ~1 giờ nên event ScalingReplicaSet của cửa sổ 15:00Z-15:11Z (2026-09-27) đã hết hạn tại thời điểm điều tra (nay 2026-09-28) — không thấy event KHÔNG phải bằng chứng phủ định, chỉ là dữ liệu đã bị xoá theo TTL. Kết luận: verdict=supported (nghi can cơ chế cụ thể: CHAOS_LLM_DELAY_SECONDS=3 trên insighthub-api-697c94c97b; cần đối chiếu thêm helm history hoặc log ứng dụng có timestamp để xác nhận chính xác mốc kích hoạt).",
+    "Giả thuyết: Tăng tải request (traffic surge) gây nghẽn và tăng latency. Evidence for: (không có). Evidence against: sum(rate(insighthub_http_requests_total[5m])) dao động 0.5407-0.5519 req/s xuyên suốt cả baseline, peak và recovery (2026-09-27T14:50:00Z-2026-09-27T15:20:00Z, Prometheus query_range), không có điểm tăng bất thường trùng thời điểm p95 latency tăng (2026-09-27T15:02:00Z). Kết luận: verdict=refuted.",
+    "Giả thuyết: Tồn đọng hàng đợi ingestion/worker (queue backlog) tràn sang latency chat/API. Evidence for: (không có). Evidence against: insighthub:queue_backlog = 0 tại mọi mốc trong cửa sổ 2026-09-27T14:50:00Z-2026-09-27T15:20:00Z (Prometheus query_range), không có giá trị khác 0 tại bất kỳ thời điểm nào kể cả lúc peak latency. Kết luận: verdict=refuted."
+  ],
+  "confidence": {
+    "score": 0.94,
+    "reason": "[Prometheus] Tương quan 1:1 tuyệt đối giữa insighthub:llm_latency_seconds:p95_5m và insighthub:rag_latency_seconds:p95_5m tại mọi mốc, cộng với việc loại trừ rõ ràng traffic surge và queue backlog bằng series phẳng (0 deviation), cho độ tin cậy cao về VỊ TRÍ và BẢN CHẤT của root cause (độ trễ cố định tại bước gọi LLM, component=api). [Kubernetes MCP, đã kết nối được] Liệt kê toàn bộ ReplicaSet của deployment/insighthub-api cho thấy insighthub-api-697c94c97b (revision 4 và 6, created 2026-09-27T04:33:00Z — cùng ngày incident) mang cờ fault-injection tường minh CHAOS_LLM_DELAY_SECONDS=3 trên container api, cờ DUY NHẤT trong toàn bộ 9 revision khớp đúng loại triệu chứng (delay cố định ở LLM call); RS insighthub-api-6d64b9dd5d (revision 8, CHAOS_LLM_ERROR_RATE=0.6) chỉ tạo lúc 2026-09-27T16:21:07Z, sau ended_at nên loại trừ khỏi incident này. Đây là nghi can cơ chế mạnh nhất từ trước tới nay nên nâng độ tin cậy từ 0.92 lên 0.94. KHÔNG nâng gần 1.0 vì hai giới hạn của bằng chứng K8s: (1) rollback tái sử dụng ReplicaSet cũ nên creationTimestamp của 697c94c97b chỉ chứng minh RS/cờ tồn tại cùng ngày, không chứng minh revision 6 được kích hoạt đúng 15:00:38Z-15:10:45Z; (2) Kubernetes Events API chỉ giữ ~1 giờ nên không còn event nào của cửa sổ đó để đối chiếu mốc thời gian trực tiếp — thiếu bằng chứng này không phải bằng chứng phủ định nhưng cũng chưa phải xác nhận dương tính tuyệt đối về thời điểm. Điểm số 0.94 phản ánh: rất tin cậy về cơ chế (CHAOS_LLM_DELAY_SECONDS), chưa tuyệt đối về mốc kích hoạt do giới hạn dữ liệu K8s hiện có (cần thêm helm history hoặc log ứng dụng có timestamp để lên >=0.98)."
+  },
+  "detection": {
+    "alert": "InsightHubLLMLatencyAnomaly",
+    "first_firing_at": "2026-09-27T15:05:00Z",
+    "detection_seconds": 262
+  },
+  "samples": [
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:00:00Z",
+      "value": 0.2375,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:06:00Z",
+      "value": 4.875,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:15:00Z",
+      "value": 4.455836587421867,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:00:00Z",
+      "value": 0.095,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:06:00Z",
+      "value": 4.875,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:15:00Z",
+      "value": 4.455836587421867,
+      "role": "recovery"
+    }
+  ],
+  "remediation": [
+    "Sự cố tự phục hồi: insighthub:llm_latency_seconds:p95_5m và insighthub:rag_latency_seconds:p95_5m quay về baseline 0.2375s/0.095s lúc 2026-09-27T15:16:00Z (Prometheus query_range), sau recovered_at 2026-09-27T15:10:45Z trong evidence — không cần can thiệp thủ công thêm ngoài việc gỡ nguồn gây độ trễ.",
+    "[Kubernetes MCP] Đã liệt kê toàn bộ ReplicaSet của deploy/insighthub-api trong namespace insighthub-local: insighthub-api-697c94c97b (revision 4/6) mang cờ CHAOS_LLM_DELAY_SECONDS=3 — nghi can cơ chế chính cho incident này. Vì K8s tái sử dụng RS khi rollback (creationTimestamp không phản ánh lần kích hoạt lại) và Events API chỉ giữ ~1 giờ (đã hết hạn tại thời điểm điều tra), bước tiếp theo là đối chiếu `helm history insighthub -n insighthub-local`, CI/CD deploy log, hoặc structured log của api ghi nhận giá trị CHAOS_LLM_DELAY_SECONDS lúc khởi động, để xác nhận revision 6 active chính xác trong khoảng 2026-09-27T15:00:38Z-15:10:45Z.",
+    "Khi InsightHubLLMLatencyAnomaly firing với component=api và rag_latency di chuyển giống hệt llm_latency (như incident này), ưu tiên kiểm tra biến môi trường CHAOS_*/env của deployment api đang chạy (`kubectl get deploy insighthub-api -n insighthub-local -o jsonpath='{.spec.template.spec.containers[0].env}'`) trước khi nghi ngờ provider LLM bên ngoài, vì mức tăng đồng bộ tuyệt đối giữa 2 metric loại trừ khả năng lỗi riêng ở tầng retrieval hoặc ở provider (không có insighthub:http_errors:ratio_rate5m nào được ghi nhận)."
+  ],
+  "prevention": [
+    "Thêm dashboard/panel đặt insighthub:llm_latency_seconds:p95_5m và insighthub:rag_latency_seconds:p95_5m cạnh nhau để responder thấy ngay tương quan 1:1, rút ngắn thời gian xác định vị trí root cause là tầng LLM call chứ không phải RAG retrieval.",
+    "Giữ nguyên band-based alert hiện tại (avg_1h + clamp_min(3*stddev_1h, 0.5)) vì đã phát hiện đúng trong 262s (injected_at 15:00:38Z -> first_firing 15:05:00Z), nhưng cân nhắc giảm `for: 2m` trong observability/rules/insighthub-rules.yaml nếu tỷ lệ false-positive cho phép, để rút ngắn detection_seconds hơn nữa.",
+    "Theo dõi định kỳ (qua Kubernetes MCP, nay đã kết nối được) các biến môi trường/ConfigMap liên quan đến độ trễ/inject trên deployment insighthub-api trong namespace insighthub-local, đảm bảo namespace lab tách biệt và không lẫn sang môi trường không phải lab; đồng thời log rõ event bật/tắt cờ chaos ở tầng ứng dụng để không phải suy luận gián tiếp qua Kubernetes như incident này."
+  ]
+}

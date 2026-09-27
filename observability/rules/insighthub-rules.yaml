@@ -1,0 +1,92 @@
+# InsightHub Day 4 recording + anomaly rules (plain Prometheus rule file).
+# - Validated with: promtool check rules / promtool test rules insighthub-rules.test.yaml
+# - Deployed as a PrometheusRule by observability/apply-rules.sh (same file, no copy).
+#
+# Anomaly band (statistical, promql-anomaly-detection style):
+#   band = avg_over_time(x[1h] offset 10m) + max(3 * stddev_over_time(x[1h] offset 10m), floor)
+# The 10m offset keeps a fresh incident from inflating its own baseline; the floor
+# stops alerts when the baseline is perfectly flat (stddev ~ 0, fixture traffic).
+groups:
+  - name: insighthub.recording
+    interval: 30s
+    rules:
+      # RED: rate / errors / duration (api)
+      - record: insighthub:http_requests:rate5m
+        expr: sum by (namespace) (rate(insighthub_http_requests_total{job="insighthub-api", endpoint!="/metrics"}[5m]))
+      - record: insighthub:http_errors:ratio_rate5m
+        expr: |
+          # A 5xx counter series only exists after the first 5xx, so fall back to 0 per namespace
+          # (otherwise the ratio, its 1h band and the alert are all empty on a healthy api).
+          (
+            sum by (namespace) (rate(insighthub_http_requests_total{job="insighthub-api", endpoint!="/metrics", status=~"5.."}[5m]))
+            or
+            0 * sum by (namespace) (rate(insighthub_http_requests_total{job="insighthub-api", endpoint!="/metrics"}[5m]))
+          )
+          /
+          clamp_min(sum by (namespace) (rate(insighthub_http_requests_total{job="insighthub-api", endpoint!="/metrics"}[5m])), 1e-9)
+      - record: insighthub:llm_latency_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (namespace, le) (rate(insighthub_llm_call_latency_seconds_bucket{job="insighthub-api"}[5m])))
+      - record: insighthub:rag_latency_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (namespace, le) (rate(insighthub_rag_query_latency_seconds_bucket{job="insighthub-api"}[5m])))
+      # Queue backlog: documents accepted (202) but not finished by the worker.
+      - record: insighthub:queue_backlog
+        expr: max by (namespace) (insighthub_documents_total{job="insighthub-api", status="pending"})
+
+  - name: insighthub.anomaly-bands
+    interval: 30s
+    rules:
+      - record: insighthub:llm_latency_seconds:p95_5m:avg_1h
+        expr: avg_over_time(insighthub:llm_latency_seconds:p95_5m[1h] offset 10m)
+      - record: insighthub:llm_latency_seconds:p95_5m:stddev_1h
+        expr: stddev_over_time(insighthub:llm_latency_seconds:p95_5m[1h] offset 10m)
+      - record: insighthub:queue_backlog:avg_1h
+        expr: avg_over_time(insighthub:queue_backlog[1h] offset 10m)
+      - record: insighthub:queue_backlog:stddev_1h
+        expr: stddev_over_time(insighthub:queue_backlog[1h] offset 10m)
+      - record: insighthub:http_errors:ratio_rate5m:avg_1h
+        expr: avg_over_time(insighthub:http_errors:ratio_rate5m[1h] offset 10m)
+      - record: insighthub:http_errors:ratio_rate5m:stddev_1h
+        expr: stddev_over_time(insighthub:http_errors:ratio_rate5m[1h] offset 10m)
+
+  - name: insighthub.anomaly-alerts
+    interval: 30s
+    rules:
+      - alert: InsightHubLLMLatencyAnomaly
+        expr: |
+          insighthub:llm_latency_seconds:p95_5m
+          > on (namespace)
+          (insighthub:llm_latency_seconds:p95_5m:avg_1h + clamp_min(3 * insighthub:llm_latency_seconds:p95_5m:stddev_1h, 0.5))
+        for: 2m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: LLM p95 latency is above its 1h anomaly band
+          description: insighthub:llm_latency_seconds:p95_5m exceeds avg_1h + max(3*stddev_1h, 0.5s). Check provider latency and api CPU.
+          runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthubllmlatencyanomaly
+      - alert: InsightHubQueueBacklogAnomaly
+        expr: |
+          insighthub:queue_backlog
+          > on (namespace)
+          (insighthub:queue_backlog:avg_1h + clamp_min(3 * insighthub:queue_backlog:stddev_1h, 5))
+        for: 2m
+        labels:
+          severity: warning
+          component: ingestion-worker
+        annotations:
+          summary: Pending documents are above their 1h anomaly band
+          description: insighthub:queue_backlog exceeds avg_1h + max(3*stddev_1h, 5). Check ingestion-worker replicas, arq:queue depth and worker job rate.
+          runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthubqueuebackloganomaly
+      - alert: InsightHubErrorRateAnomaly
+        expr: |
+          insighthub:http_errors:ratio_rate5m
+          > on (namespace)
+          (insighthub:http_errors:ratio_rate5m:avg_1h + clamp_min(3 * insighthub:http_errors:ratio_rate5m:stddev_1h, 0.05))
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: HTTP 5xx ratio is above its 1h anomaly band
+          description: insighthub:http_errors:ratio_rate5m exceeds avg_1h + max(3*stddev_1h, 5%). Check api logs by endpoint/status and dependencies.
+          runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthuberrorrateanomaly

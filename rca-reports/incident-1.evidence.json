@@ -1,0 +1,85 @@
+{
+  "incident_id": "incident-1",
+  "kind": "llm-latency",
+  "namespace": "insighthub-local",
+  "started_at": "2026-09-27T14:51:00Z",
+  "ended_at": "2026-09-27T15:15:00Z",
+  "injected_at": "2026-09-27T15:00:38Z",
+  "recovered_at": "2026-09-27T15:10:45Z",
+  "alert": {
+    "name": "InsightHubLLMLatencyAnomaly",
+    "first_firing_at": "2026-09-27T15:05:00Z",
+    "last_firing_at": "2026-09-27T15:15:00Z",
+    "detection_seconds": 262
+  },
+  "series_summary": [
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "min": 0.23749999999999996,
+      "max": 4.875,
+      "points": 25
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "min": 0.09499999999999999,
+      "max": 4.875,
+      "points": 25
+    }
+  ],
+  "samples": [
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:00:00Z",
+      "value": 0.2375,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:06:00Z",
+      "value": 4.875,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:llm_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:15:00Z",
+      "value": 4.455836587421867,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:00:00Z",
+      "value": 0.095,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:06:00Z",
+      "value": 4.875,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:rag_latency_seconds:p95_5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:15:00Z",
+      "value": 4.455836587421867,
+      "role": "recovery"
+    }
+  ]
+}

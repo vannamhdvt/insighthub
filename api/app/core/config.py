@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     # Day 1 async ingestion. API and ingestion-worker MUST read the same REDIS_URL
     # and the same UPLOAD_DIR volume, otherwise jobs or staged bytes are unreachable.
     redis_url: str = Field(default="redis://redis:6379/0", repr=False)
+    # Day 4 fault injection for incident drills. Off by default; set only in a lab
+    # namespace to reproduce LLM latency / provider error incidents.
+    chaos_llm_delay_seconds: float = Field(default=0, ge=0, le=30, allow_inf_nan=False)
+    chaos_llm_error_rate: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     upload_dir: str = "/var/lib/insighthub/uploads"
 
     @model_validator(mode="after")

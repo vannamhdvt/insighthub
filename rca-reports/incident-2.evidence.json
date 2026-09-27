@@ -1,0 +1,85 @@
+{
+  "incident_id": "incident-2",
+  "kind": "queue-backlog",
+  "namespace": "insighthub-local",
+  "started_at": "2026-09-27T15:21:00Z",
+  "ended_at": "2026-09-27T15:45:00Z",
+  "injected_at": "2026-09-27T15:30:50Z",
+  "recovered_at": "2026-09-27T15:40:52Z",
+  "alert": {
+    "name": "InsightHubQueueBacklogAnomaly",
+    "first_firing_at": "2026-09-27T15:34:00Z",
+    "last_firing_at": "2026-09-27T15:41:00Z",
+    "detection_seconds": 190
+  },
+  "series_summary": [
+    {
+      "metric": "insighthub:queue_backlog",
+      "min": 0.0,
+      "max": 40.0,
+      "points": 25
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "min": 0.5443859733584171,
+      "max": 0.6592714679901479,
+      "points": 25
+    }
+  ],
+  "samples": [
+    {
+      "metric": "insighthub:queue_backlog",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:30:00Z",
+      "value": 0.0,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:queue_backlog",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:40:00Z",
+      "value": 39.0,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:queue_backlog",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:45:00Z",
+      "value": 0.0,
+      "role": "recovery"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:30:00Z",
+      "value": 0.5482679548493931,
+      "role": "baseline"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:32:00Z",
+      "value": 0.6592714679901479,
+      "role": "peak"
+    },
+    {
+      "metric": "insighthub:http_requests:rate5m",
+      "labels": {
+        "namespace": "insighthub-local"
+      },
+      "timestamp": "2026-09-27T15:45:00Z",
+      "value": 0.5480872495648632,
+      "role": "recovery"
+    }
+  ]
+}

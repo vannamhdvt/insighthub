@@ -1,0 +1,14 @@
+# prometheus-blackbox-exporter 11.19.1 — probes web /api/health (Next.js has no /metrics).
+#   helm upgrade --install prometheus-blackbox-exporter prometheus-community/prometheus-blackbox-exporter \
+#     --version 11.19.1 -n monitoring -f observability/blackbox-exporter-values.yaml
+config:
+  modules:
+    http_2xx:
+      prober: http
+      timeout: 5s
+      http:
+        valid_status_codes: [200]
+        preferred_ip_protocol: ip4
+resources:
+  requests: {cpu: 10m, memory: 32Mi}
+  limits: {cpu: 100m, memory: 64Mi}

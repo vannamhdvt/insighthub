@@ -1,0 +1,104 @@
+# promtool test rules insighthub-rules.test.yaml
+# 90 minutes of 1m samples: 70m healthy baseline, then the incident.
+rule_files:
+  - insighthub-rules.yaml
+evaluation_interval: 30s
+tests:
+  - name: error burst fires ErrorRateAnomaly; healthy baseline does not
+    interval: 1m
+    input_series:
+      - series: 'insighthub_http_requests_total{job="insighthub-api",namespace="ns",method="POST",endpoint="/chat",status="200"}'
+        values: '0+10x90'
+      - series: 'insighthub_http_requests_total{job="insighthub-api",namespace="ns",method="POST",endpoint="/chat",status="502"}'
+        values: '0x70 0+5x20'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: InsightHubErrorRateAnomaly
+        exp_alerts: []
+      - eval_time: 78m
+        alertname: InsightHubErrorRateAnomaly
+        exp_alerts:
+          - exp_labels: {severity: critical, component: api, namespace: ns}
+            exp_annotations:
+              summary: HTTP 5xx ratio is above its 1h anomaly band
+              description: insighthub:http_errors:ratio_rate5m exceeds avg_1h + max(3*stddev_1h, 5%). Check api logs by endpoint/status and dependencies.
+              runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthuberrorrateanomaly
+    promql_expr_test:
+      - expr: insighthub:http_errors:ratio_rate5m
+        eval_time: 65m
+        exp_samples:
+          - labels: 'insighthub:http_errors:ratio_rate5m{namespace="ns"}'
+            value: 0
+
+  - name: 5xx series absent until the burst (real client behaviour) still fires
+    interval: 1m
+    input_series:
+      - series: 'insighthub_http_requests_total{job="insighthub-api",namespace="ns",method="POST",endpoint="/chat",status="200"}'
+        values: '0+10x90'
+      - series: 'insighthub_http_requests_total{job="insighthub-api",namespace="ns",method="POST",endpoint="/chat",status="502"}'
+        values: '_x70 0+5x20'
+    promql_expr_test:
+      - expr: insighthub:http_errors:ratio_rate5m
+        eval_time: 65m
+        exp_samples:
+          - labels: 'insighthub:http_errors:ratio_rate5m{namespace="ns"}'
+            value: 0
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: InsightHubErrorRateAnomaly
+        exp_alerts: []
+      - eval_time: 78m
+        alertname: InsightHubErrorRateAnomaly
+        exp_alerts:
+          - exp_labels: {severity: critical, component: api, namespace: ns}
+            exp_annotations:
+              summary: HTTP 5xx ratio is above its 1h anomaly band
+              description: insighthub:http_errors:ratio_rate5m exceeds avg_1h + max(3*stddev_1h, 5%). Check api logs by endpoint/status and dependencies.
+              runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthuberrorrateanomaly
+
+  - name: LLM latency spike fires LLMLatencyAnomaly
+    interval: 1m
+    input_series:
+      # 10 req/min. Baseline all < 0.25s; from 70m all requests take ~3s (2.5 < t <= 5).
+      - series: 'insighthub_llm_call_latency_seconds_bucket{job="insighthub-api",namespace="ns",le="0.25"}'
+        values: '0+10x70 700x20'
+      - series: 'insighthub_llm_call_latency_seconds_bucket{job="insighthub-api",namespace="ns",le="0.5"}'
+        values: '0+10x70 700x20'
+      - series: 'insighthub_llm_call_latency_seconds_bucket{job="insighthub-api",namespace="ns",le="1.0"}'
+        values: '0+10x70 700x20'
+      - series: 'insighthub_llm_call_latency_seconds_bucket{job="insighthub-api",namespace="ns",le="2.5"}'
+        values: '0+10x70 700x20'
+      - series: 'insighthub_llm_call_latency_seconds_bucket{job="insighthub-api",namespace="ns",le="5.0"}'
+        values: '0+10x90'
+      - series: 'insighthub_llm_call_latency_seconds_bucket{job="insighthub-api",namespace="ns",le="+Inf"}'
+        values: '0+10x90'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: InsightHubLLMLatencyAnomaly
+        exp_alerts: []
+      - eval_time: 78m
+        alertname: InsightHubLLMLatencyAnomaly
+        exp_alerts:
+          - exp_labels: {severity: warning, component: api, namespace: ns}
+            exp_annotations:
+              summary: LLM p95 latency is above its 1h anomaly band
+              description: insighthub:llm_latency_seconds:p95_5m exceeds avg_1h + max(3*stddev_1h, 0.5s). Check provider latency and api CPU.
+              runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthubllmlatencyanomaly
+
+  - name: queue backlog fires QueueBacklogAnomaly
+    interval: 1m
+    input_series:
+      - series: 'insighthub_documents_total{job="insighthub-api",namespace="ns",status="pending"}'
+        values: '0x70 20x20'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: InsightHubQueueBacklogAnomaly
+        exp_alerts: []
+      - eval_time: 78m
+        alertname: InsightHubQueueBacklogAnomaly
+        exp_alerts:
+          - exp_labels: {severity: warning, component: ingestion-worker, namespace: ns}
+            exp_annotations:
+              summary: Pending documents are above their 1h anomaly band
+              description: insighthub:queue_backlog exceeds avg_1h + max(3*stddev_1h, 5). Check ingestion-worker replicas, arq:queue depth and worker job rate.
+              runbook_url: https://github.com/vannamhdvt/insighthub/blob/day4-observability/docs/runbooks/day4-alerts.md#insighthubqueuebackloganomaly
