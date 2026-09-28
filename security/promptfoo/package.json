@@ -1,0 +1,12 @@
+{
+  "name": "insighthub-redteam",
+  "private": true,
+  "description": "Pinned Promptfoo for the Day 6 red team (run from repo root, see security/README.md)",
+  "scripts": {
+    "redteam:generate": "promptfoo redteam generate -c ../promptfooconfig.yaml -o redteam.yaml",
+    "redteam:eval": "promptfoo redteam eval -c redteam.yaml"
+  },
+  "devDependencies": {
+    "promptfoo": "0.123.1"
+  }
+}

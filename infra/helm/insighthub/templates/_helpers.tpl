@@ -65,6 +65,16 @@ seccompProfile:
     secretKeyRef:
       name: {{ include "insighthub.runtimeSecretName" . }}
       key: REDIS_URL
+{{- with .Values.llmGateway }}
+{{- if .enabled }}
+{{/* Day 6: LiteLLM virtual key (workload "insighthub"); never a provider key. */}}
+- name: OPENAI_API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .secretName }}
+      key: OPENAI_API_KEY
+{{- end }}
+{{- end }}
 {{- end -}}
 
 {{- define "insighthub.csiVolume" -}}

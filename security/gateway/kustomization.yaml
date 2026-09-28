@@ -1,0 +1,18 @@
+# kubectl apply -k security/gateway   (Secret litellm-secrets is created by bootstrap.sh, never committed)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: llm-gateway
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - litellm.yaml
+  - networkpolicy.yaml
+  - servicemonitor.yaml
+configMapGenerator:
+  - name: litellm-config
+    files:
+      - config.yaml
+      - insighthub_guardrail.py
+generatorOptions:
+  labels:
+    app.kubernetes.io/part-of: insighthub

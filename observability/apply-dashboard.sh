@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Load observability/grafana-dashboards/insighthub.json into Grafana via the sidecar.
+# Load a dashboard JSON into Grafana via the sidecar.
+#   observability/apply-dashboard.sh [namespace] [file]   (Day 6: monitoring llm-cost.json)
 set -euo pipefail
 ns=${1:-monitoring}
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-kubectl -n "$ns" create configmap insighthub-dashboard \
-  --from-file=insighthub.json="$here/grafana-dashboards/insighthub.json" \
+file=${2:-insighthub.json}
+name=$([ "$file" = insighthub.json ] && echo insighthub-dashboard || echo "insighthub-${file%.json}-dashboard")
+kubectl -n "$ns" create configmap "$name" \
+  --from-file="$file"="$here/grafana-dashboards/$file" \
   --dry-run=client -o yaml | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -

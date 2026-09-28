@@ -1,0 +1,22 @@
+# Day 6 FinOps rules (gateway metrics). Applied by observability/apply-rules.sh llm-cost-rules.yaml
+groups:
+  - name: insighthub-llm-cost
+    rules:
+      - record: insighthub:llm_cost_usd_per_hour:by_key
+        expr: sum by (api_key_alias) (rate(litellm_spend_metric_total[5m])) * 3600
+      - alert: InsightHubLLMBudgetLow
+        expr: max by (api_key_alias) (litellm_remaining_api_key_budget_metric) / max by (api_key_alias) (litellm_api_key_max_budget_metric) < 0.2
+        for: 5m
+        labels: {severity: warning, component: llm-gateway}
+        annotations:
+          summary: "Virtual key {{ $labels.api_key_alias }} has <20% budget left"
+          description: "Gateway will start returning budget_exceeded (HTTP 429) for this workload. Review usage in the LLM Cost dashboard."
+          runbook_url: "security/README.md#insighthubllmbudgetlow"
+      - alert: InsightHubLLMCostSpike
+        expr: sum by (api_key_alias) (rate(litellm_spend_metric_total[5m])) * 3600 > 0.5
+        for: 10m
+        labels: {severity: warning, component: llm-gateway}
+        annotations:
+          summary: "LLM spend of {{ $labels.api_key_alias }} > 0.5 USD/hour"
+          description: "Possible prompt loop / abuse (OWASP LLM10 unbounded consumption)."
+          runbook_url: "security/README.md#insighthubllmcostspike"

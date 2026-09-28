@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     chaos_llm_delay_seconds: float = Field(default=0, ge=0, le=30, allow_inf_nan=False)
     chaos_llm_error_rate: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     upload_dir: str = "/var/lib/insighthub/uploads"
+    # Day 6: context sanitization + hardened system prompt. false only to reproduce
+    # the pre-Day-6 baseline for the initial red-team scan.
+    llm_defenses: bool = True
+    # Send LiteLLM request tags (metadata) for cost attribution. Only for gateways.
+    llm_gateway_tags: bool = False
 
     @model_validator(mode="after")
     def validate_configuration(self):

@@ -1,14 +1,18 @@
-"""Optional multi-step tool loop (Anthropic Messages API) cho câu hỏi ngoài 3 intent.
+"""Optional multi-step tool loop for questions outside the 3 intents, via the LiteLLM gateway.
 
-- Chỉ bật khi có ANTHROPIC_API_KEY + CHATOPS_LLM_MODEL. Không có key -> bot vẫn chạy bằng router.
-- Bounded: tối đa `max_steps` vòng tool, tổng deadline do worker áp.
-- Chỉ expose tool READ (3 skill + PromQL instant query). Không có tool mutation: LLM không thể scale.
-- Tool output bọc trong <tool_output> và system prompt coi đó là dữ liệu, không phải lệnh.
+- Day 6: the bot never talks to a provider directly. It calls the OpenAI-compatible
+  gateway with its own virtual key (alias "chatops-bot", model "chatops-agent"), so it is
+  covered by the gateway guardrail, per-key budget and cost attribution.
+- Enabled only when LITELLM_BASE_URL + CHATOPS_LITELLM_KEY are set; otherwise the bot runs
+  on the rule router alone.
+- Bounded: at most `max_steps` tool rounds; the worker applies an overall deadline.
+- Only READ tools are exposed (3 skills + fixed-shape PromQL). No mutation tool: the LLM
+  cannot scale anything; scale stays behind the regex + approval token path.
+- Tool output is wrapped in <tool_output> and the system prompt treats it as data.
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,18 +20,20 @@ import httpx
 from .config import BOT_ROOT
 from .skills import InfraSkills
 
-API_URL = "https://api.anthropic.com/v1/messages"
+
+def _tool(name: str, description: str, params: dict | None = None, required: list[str] | None = None) -> dict:
+    schema: dict[str, Any] = {"type": "object", "properties": params or {}}
+    if required:
+        schema["required"] = required
+    return {"type": "function", "function": {"name": name, "description": description, "parameters": schema}}
+
 
 TOOLS: list[dict[str, Any]] = [
-    {"name": "get_health", "description": "Deployment readiness, scrape targets and 5xx ratio of InsightHub.",
-     "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_ingest_today", "description": "Documents processed by the ingestion worker since local midnight.",
-     "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_failing_pods", "description": "Pods in the InsightHub namespace that are failing, with warning events.",
-     "input_schema": {"type": "object", "properties": {}}},
-    {"name": "prometheus_query", "description": "Instant PromQL query (read-only) against the InsightHub Prometheus.",
-     "input_schema": {"type": "object", "properties": {"query": {"type": "string", "maxLength": 300}},
-                      "required": ["query"]}},
+    _tool("get_health", "Deployment readiness, scrape targets and 5xx ratio of InsightHub."),
+    _tool("get_ingest_today", "Documents processed by the ingestion worker since local midnight."),
+    _tool("get_failing_pods", "Pods in the InsightHub namespace that are failing, with warning events."),
+    _tool("prometheus_query", "Instant PromQL query (read-only) against the InsightHub Prometheus.",
+          {"query": {"type": "string", "maxLength": 300}}, ["query"]),
 ]
 
 
@@ -35,14 +41,19 @@ def system_prompt() -> str:
     return (BOT_ROOT / "prompts" / "system.md").read_text(encoding="utf-8")
 
 
+class LLMError(Exception):
+    """Gateway refused (guardrail/budget) or failed; message is safe to show in Slack."""
+
+
 class LLMAgent:
-    def __init__(self, api_key: str, model: str, skills: InfraSkills, max_steps: int = 4,
+    def __init__(self, base_url: str, api_key: str, model: str, skills: InfraSkills, max_steps: int = 4,
                  client: httpx.AsyncClient | None = None) -> None:
+        self.url = base_url.rstrip("/") + "/chat/completions"
         self.api_key = api_key
         self.model = model
         self.skills = skills
         self.max_steps = max_steps
-        self.client = client or httpx.AsyncClient(timeout=30)
+        self.client = client or httpx.AsyncClient(timeout=30, trust_env=False)
 
     async def _run_tool(self, name: str, args: dict[str, Any], user: str, eid: str | None) -> str:
         if name == "get_health":
@@ -57,29 +68,42 @@ class LLMAgent:
                                                   user=user, slack_event_id=eid)
         return f"unknown tool {name}"
 
+    async def _complete(self, messages: list[dict[str, Any]], user: str) -> dict[str, Any]:
+        resp = await self.client.post(self.url, headers={"Authorization": f"Bearer {self.api_key}"}, json={
+            "model": self.model, "max_tokens": 700, "messages": messages, "tools": TOOLS,
+            "user": user, "metadata": {"tags": ["workload:chatops-bot", "route:slack"]},
+        })
+        if resp.status_code >= 400:
+            marker = resp.text[:2000].lower()
+            if "insighthub_guardrail" in marker:
+                raise LLMError("Câu hỏi bị guardrail chặn (vi phạm chính sách an toàn).")
+            if "budget_exceeded" in marker or "budget has been exceeded" in marker:
+                raise LLMError("Bot đã hết ngân sách LLM của tháng; chỉ còn 3 intent cố định.")
+            raise LLMError(f"LLM gateway lỗi HTTP {resp.status_code}.")
+        return resp.json()
+
     async def answer(self, question: str, user: str, eid: str | None = None) -> tuple[str, list[str]]:
-        messages: list[dict[str, Any]] = [{"role": "user", "content": question[:1000]}]
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt()},
+            {"role": "user", "content": question[:1000]},
+        ]
         used: list[str] = []
         for _ in range(self.max_steps):
-            resp = await self.client.post(API_URL, headers={
-                "x-api-key": self.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json",
-            }, json={"model": self.model, "max_tokens": 700, "system": system_prompt(),
-                     "tools": TOOLS, "messages": messages})
-            resp.raise_for_status()
-            body = resp.json()
-            content = body.get("content", [])
-            messages.append({"role": "assistant", "content": content})
-            calls = [c for c in content if c.get("type") == "tool_use"]
+            body = await self._complete(messages, user)
+            msg = body["choices"][0]["message"]
+            calls = msg.get("tool_calls") or []
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls} if calls
+                            else {"role": "assistant", "content": msg.get("content") or ""})
             if not calls:
-                return "".join(c.get("text", "") for c in content if c.get("type") == "text").strip(), used
-            results = []
+                return (msg.get("content") or "").strip(), used
             for call in calls:
-                used.append(call["name"])
+                name = call["function"]["name"]
+                used.append(name)
                 try:
-                    out = await self._run_tool(call["name"], call.get("input") or {}, user, eid)
-                except Exception as exc:  # noqa: BLE001 - lỗi tool trả về cho model như dữ liệu
+                    args = json.loads(call["function"].get("arguments") or "{}")
+                    out = await self._run_tool(name, args, user, eid)
+                except Exception as exc:  # noqa: BLE001 - tool errors go back to the model as data
                     out = f"error: {type(exc).__name__}"
-                results.append({"type": "tool_result", "tool_use_id": call["id"],
-                                "content": f"<tool_output>\n{out[:4000]}\n</tool_output>"})
-            messages.append({"role": "user", "content": results})
+                messages.append({"role": "tool", "tool_call_id": call["id"],
+                                 "content": f"<tool_output>\n{out[:4000]}\n</tool_output>"})
         return "Mình dừng sau %d bước tool (giới hạn an toàn). Hãy hỏi cụ thể hơn." % self.max_steps, used

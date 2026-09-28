@@ -40,13 +40,15 @@ class Settings:
     worker_max_attempts: int = 3
     answer_deadline: int = 45
     tool_timeout: int = 15
-    anthropic_api_key: str = ""
-    anthropic_model: str = ""
+    # Day 6: LLM only through the LiteLLM gateway with the bot's own virtual key.
+    litellm_base_url: str = ""
+    litellm_api_key: str = ""
+    llm_model: str = "chatops-agent"
     llm_max_steps: int = 4
 
     @property
     def llm_enabled(self) -> bool:
-        return bool(self.anthropic_api_key and self.anthropic_model)
+        return bool(self.litellm_base_url and self.litellm_api_key)
 
 
 def load_settings() -> Settings:
@@ -68,7 +70,8 @@ def load_settings() -> Settings:
         worker_max_attempts=_int("CHATOPS_WORKER_MAX_ATTEMPTS", 3, 1, 5),
         answer_deadline=_int("CHATOPS_ANSWER_DEADLINE", 45, 5, 120),
         tool_timeout=_int("CHATOPS_TOOL_TIMEOUT", 15, 1, 60),
-        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        anthropic_model=os.environ.get("CHATOPS_LLM_MODEL", os.environ.get("ANTHROPIC_CHAT_MODEL", "")),
+        litellm_base_url=os.environ.get("LITELLM_BASE_URL", ""),
+        litellm_api_key=os.environ.get("CHATOPS_LITELLM_KEY", ""),
+        llm_model=os.environ.get("CHATOPS_LLM_MODEL", "chatops-agent"),
         llm_max_steps=_int("CHATOPS_LLM_MAX_STEPS", 4, 1, 6),
     )

@@ -19,7 +19,7 @@ from .audit import AuditLog
 
 _VAR = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
 _MAX_TEXT = 200_000
-_SECRET_ENV = re.compile(r"(SLACK|ANTHROPIC|OPENAI|GEMINI|TOKEN|SECRET|PASSWORD|API_KEY|KUBECONFIG$)", re.I)
+_SECRET_ENV = re.compile(r"(SLACK|ANTHROPIC|OPENAI|GEMINI|LITELLM|TOKEN|SECRET|PASSWORD|API_KEY|KUBECONFIG$)", re.I)
 
 
 class ToolError(Exception):

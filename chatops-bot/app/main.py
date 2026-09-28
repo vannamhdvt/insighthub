@@ -41,8 +41,8 @@ def create_app(settings: Settings | None = None, *, backend: ToolBackend | None 
     owned_backend = backend is None
     backend = backend or MCPBackend(settings.mcp_config, audit, timeout=settings.tool_timeout)
     skills = InfraSkills(backend, settings.namespace, settings.timezone)
-    llm = (LLMAgent(settings.anthropic_api_key, settings.anthropic_model, skills, settings.llm_max_steps)
-           if settings.llm_enabled else None)
+    llm = (LLMAgent(settings.litellm_base_url, settings.litellm_api_key, settings.llm_model, skills,
+                    settings.llm_max_steps) if settings.llm_enabled else None)
     service = ChatOpsService(
         skills=skills,
         policy=PermissionPolicy(settings.operator_ids, load_scale_targets(settings.catalog)),
