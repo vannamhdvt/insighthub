@@ -1,0 +1,27 @@
+# api.slack.com/apps -> Create New App -> From an app manifest -> dán file này.
+# Thay <NGROK_URL> bằng URL https của ngrok (vd https://abcd-1-2-3-4.ngrok-free.app).
+display_information:
+  name: InsightHub Ops
+  description: InsightHub ChatOps bot (DO2603 Day 5)
+features:
+  bot_user:
+    display_name: insighthub-ops
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read   # nhận @mention
+      - chat:write          # trả lời trong thread
+      - im:history          # hỏi bot qua DM (tuỳ chọn)
+settings:
+  event_subscriptions:
+    request_url: <NGROK_URL>/slack/events
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: <NGROK_URL>/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

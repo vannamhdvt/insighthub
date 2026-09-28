@@ -18,6 +18,9 @@ RUN groupadd --system --gid 1001 botuser \
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY --chown=botuser:botuser app ./app
+COPY --chown=botuser:botuser prompts ./prompts
+COPY --chown=botuser:botuser mcp-servers.json service-catalog.yaml ./
+# MCP stdio servers (npx) cần Node trong image khi deploy K8s; local demo chạy bot trên host có Node.
 
 USER botuser
 EXPOSE 8080

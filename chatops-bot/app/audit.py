@@ -1,16 +1,80 @@
 """
-InsightHub ChatOps Bot — Audit log (SKELETON)
+InsightHub ChatOps Bot — structured audit log.
 
-Mọi tool call của bot PHẢI được ghi audit. Đây là yêu cầu bảo mật cốt lõi:
-khi AI agent có quyền chạm vào hạ tầng, phải có dấu vết kiểm toán.
-
-TODO Day 5: hoàn thiện theo gợi ý dưới.
+Mỗi quyết định quyền và mỗi tool call ghi 1 dòng JSON (JSONL) vào CHATOPS_AUDIT_LOG.
+`decision` chỉ có 3 giá trị: allowed | denied | approval_required.
+Kết quả thực thi nằm ở `outcome` (ok | error | expired | pending) để không trộn với quyết định quyền.
+Không ghi token, secret, raw tool output; `result` là summary đã rút gọn.
 """
-import json
-import logging
-from datetime import datetime, timezone
+from __future__ import annotations
 
-logger = logging.getLogger("chatops-bot.audit")
+import json
+import os
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+DECISIONS = frozenset({"allowed", "denied", "approval_required"})
+_lock = threading.Lock()
+_MAX_RESULT = 500
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class AuditLog:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def record(
+        self,
+        *,
+        user: str,
+        action: str,
+        decision: str,
+        tier: str,
+        tool: str | None = None,
+        args: dict[str, Any] | None = None,
+        result: str = "",
+        outcome: str = "ok",
+        slack_event_id: str | None = None,
+        identity: str = "chatops-readonly",
+        duration_ms: int | None = None,
+    ) -> dict[str, Any]:
+        if decision not in DECISIONS:
+            raise ValueError(f"invalid decision {decision!r}")
+        event: dict[str, Any] = {
+            "timestamp": utc_now(),
+            "event_id": uuid.uuid4().hex,
+            "slack_event_id": slack_event_id,
+            "user": user or "unknown",
+            "action": action,
+            "tier": tier,
+            "tool": tool,
+            "args": args or {},
+            "decision": decision,
+            "approved": decision == "allowed",
+            "identity": identity,
+            "outcome": outcome,
+            "result": result[:_MAX_RESULT],
+            "duration_ms": duration_ms,
+        }
+        run_id = os.environ.get("INSIGHTHUB_VERIFY_RUN_ID")
+        if run_id:
+            event["test_run_id"] = run_id
+        line = json.dumps(event, ensure_ascii=False)
+        with _lock, self.path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        return event
+
+    def read_events(self) -> list[dict[str, Any]]:
+        if not self.path.exists():
+            return []
+        return [json.loads(x) for x in self.path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
 def log_tool_call(
@@ -20,25 +84,10 @@ def log_tool_call(
     result_summary: str,
     approved: bool = True,
 ) -> None:
-    """
-    Ghi 1 dòng audit cho mỗi tool call.
+    """Giữ API cũ của skeleton; ghi vào log mặc định."""
+    from .config import load_settings
 
-    TODO Day 5:
-    - Ghi ra file hoặc stdout dạng structured JSON (mỗi dòng 1 record).
-    - Trong production thật: đẩy sang log aggregator (Loki...).
-    - Trường tối thiểu: timestamp, user, tool, args, kết quả, approved.
-
-    Ví dụ record:
-      {"ts": "...", "user": "U123", "tool": "kubectl_get_pods",
-       "args": {...}, "result": "5 pods Running", "approved": true}
-    """
-    record = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "user": user,
-        "tool": tool,
-        "args": args,
-        "result": result_summary,
-        "approved": approved,
-    }
-    # TODO: thay bằng ghi file / gửi log aggregator
-    logger.info("AUDIT %s", json.dumps(record, ensure_ascii=False))
+    AuditLog(load_settings().audit_log).record(
+        user=user, action=tool, tool=tool, args=args, result=result_summary,
+        decision="allowed" if approved else "denied", tier="read",
+    )
