@@ -1,0 +1,78 @@
+# ChatOps bot identities (namespace-scoped, least privilege).
+#   chatops-readonly : identity cho Kubernetes MCP (đọc pod/event/deployment). Không có verb ghi.
+#   chatops-scaler   : identity RIÊNG cho mutation, chỉ get/patch scale của 3 Deployment trong allowlist.
+# Kiểm tra: kubectl auth can-i --as=system:serviceaccount:insighthub-local:chatops-readonly delete pods -n insighthub-local  -> no
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chatops-readonly
+  namespace: insighthub-local
+  labels: {app.kubernetes.io/part-of: insighthub, app.kubernetes.io/component: chatops-bot}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chatops-readonly
+  namespace: insighthub-local
+rules:
+  - apiGroups: [""]
+    resources: [pods, events, services]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: ["events.k8s.io"]
+    resources: [events]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chatops-readonly
+  namespace: insighthub-local
+subjects:
+  - {kind: ServiceAccount, name: chatops-readonly, namespace: insighthub-local}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: chatops-readonly}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chatops-readonly-token
+  namespace: insighthub-local
+  annotations: {kubernetes.io/service-account.name: chatops-readonly}
+type: kubernetes.io/service-account-token
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chatops-scaler
+  namespace: insighthub-local
+  labels: {app.kubernetes.io/part-of: insighthub, app.kubernetes.io/component: chatops-bot}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chatops-scaler
+  namespace: insighthub-local
+rules:
+  - apiGroups: ["apps"]
+    resources: [deployments, deployments/scale]
+    resourceNames: [insighthub-api, insighthub-web, insighthub-ingestion-worker]
+    verbs: [get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chatops-scaler
+  namespace: insighthub-local
+subjects:
+  - {kind: ServiceAccount, name: chatops-scaler, namespace: insighthub-local}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: chatops-scaler}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chatops-scaler-token
+  namespace: insighthub-local
+  annotations: {kubernetes.io/service-account.name: chatops-scaler}
+type: kubernetes.io/service-account-token

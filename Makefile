@@ -5,7 +5,7 @@ NODE ?= node
 API_URL ?= http://localhost:8000
 WEB_URL ?= http://localhost:3000
 
-.PHONY: up down test test-backend test-verifiers test-mcp smoke tools build ci
+.PHONY: up down test test-backend test-verifiers test-mcp test-chatops smoke tools build ci
 up:
 	$(COMPOSE) up --build -d --wait
 down:
@@ -21,6 +21,9 @@ test-backend:
 test-mcp:
 	$(NPM) --prefix tools/mcp test
 	$(NODE) tools/mcp/smoke.mjs
+test-chatops:
+	$(PYTHON) -m pytest chatops-bot/tests -q -p no:cacheprovider
+	$(PYTHON) -B -m pytest -c /dev/null -p no:cacheprovider tests/milestones/day5 -q
 test: test-verifiers test-backend test-mcp
 smoke:
 	$(PYTHON) scripts/verify.py smoke --api-url "$(API_URL)" --web-url "$(WEB_URL)"

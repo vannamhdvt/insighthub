@@ -1,0 +1,21 @@
+{
+  "_comment": "Reuse Day 2 MCP backends (same version pins as .mcp.json). ${VAR:-default} is expanded from env. Bot only calls allow_tools.",
+  "servers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": [
+        "-y", "kubernetes-mcp-server@0.0.67",
+        "--read-only", "--disable-destructive", "--disable-multi-cluster",
+        "--toolsets", "core", "--list-output", "yaml",
+        "--kubeconfig", "${CHATOPS_READONLY_KUBECONFIG:-/Users/zotabox/.kube/chatops-readonly.kubeconfig}"
+      ],
+      "allow_tools": ["pods_list_in_namespace", "events_list", "resources_list"]
+    },
+    "prometheus": {
+      "command": "npx",
+      "args": ["-y", "prometheus-mcp@1.1.3", "stdio"],
+      "env": {"PROMETHEUS_URL": "${PROMETHEUS_URL:-http://localhost:9090}"},
+      "allow_tools": ["prometheus_query"]
+    }
+  }
+}

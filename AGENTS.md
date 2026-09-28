@@ -43,6 +43,9 @@ Manager) + Helm `infra/helm/insighthub`. Trên EKS postgres/redis là managed se
 không phải pod; secret vào pod qua IRSA + Secrets Store CSI. Spec: `infra/SPEC.md`.
 Observability (Day 4): api `/metrics`, worker `:9101/metrics`, redis/postgres exporter, blackbox probe
 web; rules + dashboard ở `observability/`. Fault injection `CHAOS_*` mặc định tắt.
+ChatOps (Day 5): `chatops-bot/` FastAPI nhận Slack Events (verify chữ ký trước, ACK <3s, queue SQLite
+dedup), đọc qua Kubernetes/Prometheus MCP Day 2 bằng SA `chatops-readonly`; scale chỉ qua token
+duyệt 60s và SA riêng `chatops-scaler`; audit JSONL. Chi tiết: `chatops-bot/README.md`.
 
 ## Conventions
 
@@ -82,6 +85,7 @@ chậm treo cả API.
   `checkov -d infra`, `conftest test --policy infra/policies/terraform <plan.json>`
 * Runbook AWS/teardown: `docs/runbooks/day3-aws-lab.md`
 * Day 4 observability/drill/RCA: `docs/runbooks/day4-observability.md`; `promtool test rules observability/rules/insighthub-rules.test.yaml`
+* Day 5 ChatOps: `make test-chatops`; chạy bot `cd chatops-bot && uvicorn app.main:app --port 8080` + `ngrok http 8080`
 
 Tái hiện failure case:
 

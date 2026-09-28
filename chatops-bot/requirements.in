@@ -1,3 +1,10 @@
-# Minimal fail-closed Day5 skeleton; add Slack SDK only for chosen transport.
+# Day 5 ChatOps bot (HTTP transport). Regenerate lock:
+#   uv pip compile requirements.in --python-version 3.12 --universal --generate-hashes --output-file requirements.txt --no-emit-index-url
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
+# Slack Web API client (chat.postMessage); zero transitive deps.
+slack_sdk==3.44.1
+# MCP client (stdio) to reuse Day 2 Kubernetes/Prometheus MCP servers; also brings httpx for the optional LLM loop.
+mcp==1.30.0
+# Parse kubernetes-mcp-server --list-output yaml and service-catalog.yaml.
+PyYAML==6.0.3

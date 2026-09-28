@@ -55,3 +55,5 @@ reports/
 
 # Claude Code local approvals (personal config, not part of the submission)
 .claude/settings.local.json
+chatops-bot/reports/
+.venv-bot/

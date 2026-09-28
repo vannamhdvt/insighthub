@@ -1,0 +1,40 @@
+# Service catalog cho ChatOps bot: ai sở hữu gì, bot được làm gì với từng service.
+# Owner là Slack handle/nhóm nhận escalation; runbook trỏ về tài liệu trong repo.
+namespace: insighthub-local
+services:
+  - name: insighthub-api
+    alias: api
+    owner: "@namtv"
+    tier: critical
+    scalable: true
+    replicas: {min: 1, max: 5}
+    metrics: [insighthub_http_requests_total, "insighthub:http_errors:ratio_rate5m"]
+    runbook: docs/runbooks/day4-observability.md
+  - name: insighthub-ingestion-worker
+    alias: worker
+    owner: "@namtv"
+    tier: high
+    scalable: true
+    replicas: {min: 1, max: 5}
+    metrics: [insighthub_worker_jobs_total, "insighthub:queue_backlog"]
+    runbook: docs/runbooks/day4-observability.md
+  - name: insighthub-web
+    alias: web
+    owner: "@namtv"
+    tier: medium
+    scalable: true
+    replicas: {min: 1, max: 5}
+    metrics: [probe_success]
+    runbook: docs/runbooks/day4-observability.md
+  - name: insighthub-postgres
+    alias: postgres
+    owner: "@namtv"
+    tier: critical
+    scalable: false  # stateful: không bao giờ scale qua chat
+    metrics: [pg_up]
+  - name: insighthub-redis
+    alias: redis
+    owner: "@namtv"
+    tier: high
+    scalable: false
+    metrics: [redis_up]

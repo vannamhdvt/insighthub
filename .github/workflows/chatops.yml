@@ -1,0 +1,26 @@
+name: ChatOps bot (Day 5)
+on:
+  push:
+    paths: ["chatops-bot/**", "tests/milestones/day5/**", ".github/workflows/chatops.yml"]
+  pull_request:
+    paths: ["chatops-bot/**", "tests/milestones/day5/**", ".github/workflows/chatops.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Unit + contract tests (same image digest as chatops-bot/Dockerfile)
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            python:3.12.14-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea sh -ec '
+              pip install --no-cache-dir --require-hashes -r chatops-bot/requirements-dev.txt
+              python -m pytest chatops-bot/tests -v -p no:cacheprovider
+              python -B -m pytest -c /dev/null -p no:cacheprovider tests/milestones/day5 -v
+            '
+      - name: Image builds (non-root, hash-pinned deps)
+        run: docker build -t insighthub-chatops:ci chatops-bot
