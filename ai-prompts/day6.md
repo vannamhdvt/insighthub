@@ -84,9 +84,20 @@
   5. Model vẫn chiều yêu cầu sáng tác off-topic (thơ bóng đá) dù có rule (5) trong hardened prompt
      → làm rõ rule: liệt kê tường minh các dạng sáng tác (thơ/truyện/bài hát/code không liên quan)
      và cấm thực hiện dù chỉ một phần.
-- Budget test: sequential / burst overshoot: **chưa verify được bằng live run** — model `coding-review`
-  không có fallback Ollama, và quota free-tier Gemini (500 req/ngày) đã cạn do chạy nhiều vòng
-  scan/eval trong ngày 2026-09-28 (xem `security/threat-model.md`). Logic budget/virtual-key (tạo key,
-  chặn 429, cost tracking) đã được verify gián tiếp qua eval final chạy thật 20/20 case với cost
-  report hợp lệ; `test_budget_enforced` cần chạy lại sau khi quota reset hoặc sau khi thêm fallback
-  cho `coding-review`.
+- Budget test: sequential / burst overshoot: **đã verify PASS bằng live run** (2026-09-29), sau 2 lần fix:
+  1. Root cause ban đầu (2026-09-28) không phải bug logic budget, mà là model `coding-review` không có
+     fallback khi Gemini free-tier quota (500 req/ngày) cạn → mọi request bị 429 ngay từ đầu, không phải
+     do budget. Fix: thêm model `coding-review-local` (Ollama `qwen2.5:7b-instruct`, giá đặt tường minh
+     giống rate thật của Gemini, không phải 0) và wire vào `router_settings.fallbacks` trong
+     `security/gateway/config.yaml`, cùng cơ chế fallback đã có sẵn cho `insighthub-chat`.
+  2. Sau khi có fallback, lộ ra 2 assertion quá cứng trong `tests/milestones/day6/test_day6.py`, do
+     LiteLLM's `max_budget` là pre-flight (reserve trước chi phí worst-case của request kế tiếp dựa
+     trên `max_tokens`, nên spend đã persist tại thời điểm bị chặn luôn thấp hơn budget một khoảng cố
+     định, không phải do lag ghi DB — đã loại trừ giả thuyết lag bằng cách kéo dài polling 15→40 lần mà
+     kết quả không đổi): sửa assertion sequential-spend thành so với `budget - reserve_margin`
+     (`64 * output_cost_per_token + safety buffer`); sửa assertion burst-tail từ kỳ vọng "2 request
+     ngay sau burst đều 429" thành lặp-tới-khi-thấy-429 rồi assert vẫn bị chặn tiếp (cùng pattern
+     "denied stays denied" của phần sequential), vì burst 8 request song song không phải lúc nào cũng
+     tiêu hết budget ngay trong 1 lần.
+  Kết quả live cuối: sequential 200→429 đúng, burst overshoot đo được (không che), toàn bộ 3 test
+  PASS qua `scripts/verify.py day6 --api-url http://127.0.0.1:18000 --test-timeout 900`.

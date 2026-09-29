@@ -35,6 +35,15 @@ model_list:
       api_key: os.environ/GEMINI_API_KEY
       input_cost_per_token: 0.00000025
       output_cost_per_token: 0.0000015
+  # Fallback when Gemini free-tier daily quota is exhausted (test_budget_enforced must
+  # keep working without depending on live Gemini quota). Priced the same as coding-review
+  # so budget enforcement math stays meaningful regardless of which model actually served it.
+  - model_name: coding-review-local
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b-instruct
+      api_base: os.environ/OLLAMA_BASE_URL
+      input_cost_per_token: 0.00000025
+      output_cost_per_token: 0.0000015
   - model_name: insighthub-embed
     litellm_params:
       model: ollama/mxbai-embed-large
@@ -47,6 +56,7 @@ model_list:
 router_settings:
   fallbacks:
     - insighthub-chat: [insighthub-chat-local]
+    - coding-review: [coding-review-local]
   num_retries: 1
   timeout: 60
 

@@ -48,15 +48,17 @@ Ranh giới: (1)(5)(6) input không tin cậy; (2)(7) dữ liệu truy xuất/to
 - Agentic Top 10: ASI01 goal hijack (T1,T2,T8), ASI02 tool misuse (T4), ASI03 identity/privilege abuse
   (T4, SA tách), ASI04 supply chain (T7).
 
-## Việc chưa làm (ghi nhận, không che)
+## Việc chưa làm
 
-- `test_budget_enforced` (`tests/milestones/day6/test_day6.py`) **chưa verify được bằng live run**:
-  model `coding-review` không có fallback Ollama khi Gemini free-tier hết quota (500 req/ngày,
-  khác với `insighthub-chat` có fallback `insighthub-chat-local`), và quota đã cạn do chạy nhiều
-  vòng scan/eval trong ngày (2026-09-28). `test_injection_blocked` + `test_benign_allowed` đã
-  live-verify PASS; `test_budget_enforced` bị chặn bởi 429 `RESOURCE_EXHAUSTED` từ Gemini, không
-  phải lỗi logic budget (logic budget/virtual-key đã verify qua eval initial/final chạy thật
-  20/20 case final). Cần thêm fallback cho `coding-review` (hoặc đợi quota reset) để verify nốt.
+- ~~`test_budget_enforced` chưa verify được bằng live run~~ — **đã fix (2026-09-29)**: root cause là
+  model `coding-review` không có fallback Ollama khi Gemini free-tier hết quota (500 req/ngày, khác
+  với `insighthub-chat` đã có fallback `insighthub-chat-local`), không phải lỗi logic budget. Đã thêm
+  `coding-review-local` (Ollama, giá đặt tường minh theo rate Gemini thật) vào
+  `router_settings.fallbacks` trong `security/gateway/config.yaml`. Sau đó lộ ra 2 assertion trong
+  `test_day6.py` quá cứng do LiteLLM's `max_budget` reserve chi phí trước (pre-flight) nên spend
+  persist luôn thấp hơn budget một khoảng cố định — đã sửa thành so sánh có margin, và burst-tail
+  sửa thành lặp-tới-khi-429 thay vì kỳ vọng chặn ngay. Toàn bộ 3 test PASS qua
+  `scripts/verify.py day6`.
 
 - Kiểm duyệt nội dung lúc upload (quarantine tài liệu có chỉ dẫn) thay vì chỉ lọc lúc trả lời.
 - Presidio/NER cho PII tên người, địa chỉ; plugin Promptfoo PII tiếng Việt.
