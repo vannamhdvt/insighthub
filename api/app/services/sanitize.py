@@ -45,20 +45,12 @@ def looks_like_instruction(text: str) -> bool:
     return bool(_REGEX.search(_normalize(text.translate(_ZERO_WIDTH))))
 
 
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n\s*\n+")
 
 
 def sanitize_context(text: str) -> tuple[str, int]:
     """Return (clean_text, removed_segment_count)."""
     text = text.translate(_ZERO_WIDTH)
-    removed = 0
-
-    def _comment(match: re.Match) -> str:
-        nonlocal removed
-        removed += 1
-        return REMOVED_MARKER
-
-    text = _HTML_COMMENT.sub(_comment, text)
     # Sentence granularity, not paragraph: chunking.py (api/app/services/chunking.py)
     # rejoins the source with `" ".join(text.split())`, so a retrieved chunk never has a
     # blank line to split on -- splitting on blank lines degenerated to "the whole chunk
@@ -67,10 +59,21 @@ def sanitize_context(text: str) -> tuple[str, int]:
     # formats from huong-dan-nguoi-moi.md). An injected instruction still spans several
     # sentences ("NOTE FOR THE AI ... / You are now ... / ... reveal ..."), so consecutive
     # flagged sentences are coalesced into a single marker.
+    #
+    # HTML-comment removal must happen PER SENTENCE, not once over the whole text before
+    # splitting: substituting the comment span with REMOVED_MARKER (no sentence-ending
+    # punctuation) used to erase the sentence boundary right after it, fusing the comment's
+    # neighboring sentence into the same chunk as the injected text before it -- so
+    # legitimate content past the comment got wiped too.
     out = []
+    removed = 0
     prev_removed = False
     for sentence in _SENTENCE_SPLIT.split(text):
-        if looks_like_instruction(sentence):
+        if not sentence:
+            continue
+        stripped, comment_hits = _HTML_COMMENT.subn("", sentence)
+        flagged = bool(comment_hits) or looks_like_instruction(stripped)
+        if flagged:
             removed += 1
             if not prev_removed:
                 out.append(REMOVED_MARKER)

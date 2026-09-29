@@ -89,27 +89,30 @@ def detect_direct_injection(text: str) -> str | None:
     return m.group(0)[:60] if m else None
 
 
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n\s*\n+")
 
 
 def strip_indirect(text: str) -> tuple[str, int]:
-    removed = 0
-
-    def _c(_m: re.Match) -> str:
-        nonlocal removed
-        removed += 1
-        return REMOVED
-
-    text = _HTML_COMMENT.sub(_c, (text or "").translate(_ZW))
     # Sentence granularity, not paragraph: the app-side chunker (api/app/services/
     # chunking.py) rejoins each chunk with `" ".join(text.split())`, so a chunk reaching
     # the gateway has no blank line to split on -- paragraph splitting degenerated to
     # "the whole chunk is one paragraph" and wiped benign facts sharing a chunk with an
     # injected block. Mirrors the same fix in api/app/services/sanitize.py.
+    #
+    # HTML-comment removal must happen PER SENTENCE, not once over the whole text before
+    # splitting: substituting the comment span with the REMOVED marker (which carries no
+    # sentence-ending punctuation) used to erase the sentence boundary right after it, so
+    # the split regex fused the comment's neighboring sentence into the same chunk as the
+    # injected text before it -- and legitimate content past the comment got stripped too.
     out = []
+    removed = 0
     prev_removed = False
-    for sentence in _SENTENCE_SPLIT.split(text):
-        if _INDIRECT_RE.search(normalize(sentence)):
+    for sentence in _SENTENCE_SPLIT.split((text or "").translate(_ZW)):
+        if not sentence:
+            continue
+        stripped, comment_hits = _HTML_COMMENT.subn("", sentence)
+        is_indirect = bool(comment_hits) or bool(_INDIRECT_RE.search(normalize(stripped)))
+        if is_indirect:
             removed += 1
             if not prev_removed:
                 out.append(REMOVED)
