@@ -1,0 +1,201 @@
+{
+  "mode": "real",
+  "observed_at": "2026-09-29T11:53:57Z",
+  "source_sha256": "aa5a8dae60e872033d2d0cd8106e34297b554f24ba3c204692e61370ec6513f4",
+  "currency": "USD",
+  "pricing_source": "https://ai.google.dev/gemini-api/docs/pricing (paid tier list price; free tier usage is still costed at list price so budgets are conservative)",
+  "entries": [
+    {
+      "request_id": "41c70183-5d10-4024-aa91-d42dcf4a1a18",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "input_usd_per_million": 0,
+      "output_usd_per_million": 0,
+      "cost_usd": 0.0,
+      "resource_usage": {
+        "measurement_source": "eval wall clock (time.monotonic) + Ollama /api/ps resident size of llama-guard3",
+        "duration_seconds": 0.289,
+        "memory_peak_bytes": 2789128273
+      }
+    },
+    {
+      "request_id": "4d102b88-b3cf-4b34-9074-f51afd3fe3da",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "input_usd_per_million": 0,
+      "output_usd_per_million": 0,
+      "cost_usd": 0.0,
+      "resource_usage": {
+        "measurement_source": "eval wall clock (time.monotonic) + Ollama /api/ps resident size of llama-guard3",
+        "duration_seconds": 0.086,
+        "memory_peak_bytes": 2789128273
+      }
+    },
+    {
+      "request_id": "e52dff54-4f29-4a6d-9dd0-404f51311242",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "input_usd_per_million": 0,
+      "output_usd_per_million": 0,
+      "cost_usd": 0.0,
+      "resource_usage": {
+        "measurement_source": "eval wall clock (time.monotonic) + Ollama /api/ps resident size of llama-guard3",
+        "duration_seconds": 0.063,
+        "memory_peak_bytes": 2789128273
+      }
+    },
+    {
+      "request_id": "2b713b05-104f-4a6e-b1f1-d2fc70770437",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "input_usd_per_million": 0,
+      "output_usd_per_million": 0,
+      "cost_usd": 0.0,
+      "resource_usage": {
+        "measurement_source": "eval wall clock (time.monotonic) + Ollama /api/ps resident size of llama-guard3",
+        "duration_seconds": 0.278,
+        "memory_peak_bytes": 2789128273
+      }
+    },
+    {
+      "request_id": "d23d354f-b915-4a30-a478-bddd96b4937a",
+      "input_tokens": 1468,
+      "output_tokens": 21,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.0003985
+    },
+    {
+      "request_id": "3c083153-b809-4d31-89ec-5932e35111e5",
+      "input_tokens": 1463,
+      "output_tokens": 203,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00067025
+    },
+    {
+      "request_id": "087a0587-166c-4bda-a0e7-03e5cab9045b",
+      "input_tokens": 1461,
+      "output_tokens": 51,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00044175
+    },
+    {
+      "request_id": "360ee23c-890a-4a3d-a55c-675302c1c637",
+      "input_tokens": 1460,
+      "output_tokens": 43,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.0004295
+    },
+    {
+      "request_id": "0630d94f-575c-4278-83c4-411ba0961ad5",
+      "input_tokens": 1459,
+      "output_tokens": 272,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00077275
+    },
+    {
+      "request_id": "c161e620-dadc-4daa-a72e-38c50ee7403b",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "input_usd_per_million": 0,
+      "output_usd_per_million": 0,
+      "cost_usd": 0.0,
+      "resource_usage": {
+        "measurement_source": "eval wall clock (time.monotonic) + Ollama /api/ps resident size of llama-guard3",
+        "duration_seconds": 0.222,
+        "memory_peak_bytes": 2789128273
+      }
+    },
+    {
+      "request_id": "79d75a6a-6e77-4eb6-b5d3-c2f671deb35f",
+      "input_tokens": 1459,
+      "output_tokens": 18,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00039175
+    },
+    {
+      "request_id": "eb760c3d-c842-4df1-a6f5-3c038719b41b",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "input_usd_per_million": 0,
+      "output_usd_per_million": 0,
+      "cost_usd": 0.0,
+      "resource_usage": {
+        "measurement_source": "eval wall clock (time.monotonic) + Ollama /api/ps resident size of llama-guard3",
+        "duration_seconds": 0.102,
+        "memory_peak_bytes": 2789128273
+      }
+    },
+    {
+      "request_id": "46bff5d2-4aaf-491e-89bb-b302b6702f02",
+      "input_tokens": 1463,
+      "output_tokens": 66,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00046475
+    },
+    {
+      "request_id": "751555db-709b-4744-89ac-146150f6e5c0",
+      "input_tokens": 1464,
+      "output_tokens": 89,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.0004995
+    },
+    {
+      "request_id": "ba8328dc-592d-4b39-bdde-72ce60398b70",
+      "input_tokens": 1458,
+      "output_tokens": 133,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.000564
+    },
+    {
+      "request_id": "12b0716e-a279-496a-bcee-122e578d0b4e",
+      "input_tokens": 1465,
+      "output_tokens": 46,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00043525
+    },
+    {
+      "request_id": "a2f1f5b3-1436-4d68-9196-4a0f3d9187d4",
+      "input_tokens": 1461,
+      "output_tokens": 31,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.00041175
+    },
+    {
+      "request_id": "248ff7ac-9064-4caa-94fa-7f67eed5d973",
+      "input_tokens": 1462,
+      "output_tokens": 33,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.000415
+    },
+    {
+      "request_id": "a6da325d-f994-4e5a-8fb6-a0e035faa744",
+      "input_tokens": 1462,
+      "output_tokens": 32,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.0004135
+    },
+    {
+      "request_id": "6ed7bb28-ae66-4f79-8891-18577280b9ec",
+      "input_tokens": 1460,
+      "output_tokens": 77,
+      "input_usd_per_million": 0.25,
+      "output_usd_per_million": 1.5,
+      "cost_usd": 0.0004805
+    }
+  ],
+  "total_usd": 0.00678875,
+  "budget_usd": 2.0
+}
