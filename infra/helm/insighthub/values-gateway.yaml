@@ -1,0 +1,24 @@
+# Day 6 overlay (layer on top of values-local.yaml):
+#   helm upgrade --install insighthub infra/helm/insighthub -n insighthub-local \
+#     -f infra/helm/insighthub/values-local.yaml -f infra/helm/insighthub/values-gateway.yaml
+# All LLM/embedding traffic goes to the in-cluster LiteLLM gateway (OpenAI-compatible)
+# with the "insighthub" virtual key; the provider key (Gemini) lives only in the gateway.
+llmGateway:
+  enabled: true
+  secretName: insighthub-llm-gateway
+config:
+  RAG_MODE: real
+  LLM_PROVIDER: openai
+  EMBEDDING_PROVIDER: openai
+  OPENAI_BASE_URL: http://litellm.llm-gateway.svc.cluster.local:4000/v1
+  OPENAI_CHAT_MODEL: insighthub-chat
+  OPENAI_EMBEDDING_MODEL: insighthub-embed
+  LLM_MAX_TOKENS: "512"
+  EMBEDDING_DIM: "1024"
+  # New embedding identity (gateway + mxbai) -> reindex; bump when the embed model changes.
+  EMBEDDING_REVISION: "gateway-mxbai-1"
+  PROVIDER_TIMEOUT_SECONDS: "60"
+  LLM_GATEWAY_TAGS: "true"
+  # "false" only for the baseline (initial) red-team scan; see security/README.md.
+  LLM_DEFENSES: "true"
+  UPLOAD_DIR: /var/lib/insighthub/uploads

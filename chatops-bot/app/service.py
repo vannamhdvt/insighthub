@@ -6,7 +6,7 @@ from typing import Any
 from .audit import AuditLog
 from .executor import ExecutionError, Scaler
 from .intents import Intent, route
-from .llm import LLMAgent
+from .llm import LLMAgent, LLMError
 from .permissions import ApprovalError, ApprovalStore, PermissionPolicy
 from .skills import InfraSkills
 from .slack import Replier, approval_blocks
@@ -91,8 +91,13 @@ class ChatOpsService:
         elif intent.name == "failing_pods":
             ans = await self.skills.failing_pods(user, eid)
         elif intent.name == "unknown" and self.llm is not None:
-            text, used = await self.llm.answer(intent.params.get("text", ""), user, eid)
-            return f"{text}\n_tools: {', '.join(used) or 'none'} (LLM)_", None
+            try:
+                text, used = await self.llm.answer(intent.params.get("text", ""), user, eid)
+            except LLMError as exc:
+                self.audit.record(user=user, action="llm_query", tier="read", decision="denied",
+                                  result=str(exc), outcome="error", slack_event_id=eid)
+                return f"⛔ {exc}\n{HELP}", None
+            return f"{text}\n_tools: {', '.join(used) or 'none'} (LLM via gateway)_", None
         else:
             return HELP, None
         return f"{ans.text}\n_tools: {', '.join(ans.tools)}_", None

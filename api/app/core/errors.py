@@ -5,6 +5,8 @@ class ServiceError(Exception):
     status_code = 500
     code = "internal_error"
     message = "Không thể xử lý yêu cầu."
+    # Opaque gateway call id (never a body/credential), returned for audit correlation.
+    request_id: str | None = None
 
     def __init__(self):
         super().__init__(self.message)
@@ -14,6 +16,18 @@ class ProviderError(ServiceError):
     status_code = 502
     code = "provider_error"
     message = "Dịch vụ AI không khả dụng hoặc trả dữ liệu không hợp lệ."
+
+
+class GuardrailBlocked(ProviderError):
+    status_code = 400
+    code = "guardrail_blocked"
+    message = "Yêu cầu bị guardrail chặn vì vi phạm chính sách an toàn."
+
+
+class BudgetExceeded(ProviderError):
+    status_code = 429
+    code = "llm_budget_exceeded"
+    message = "Đã vượt ngân sách LLM của workload này."
 
 
 class InvalidDocument(ServiceError):

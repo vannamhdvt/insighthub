@@ -1,0 +1,11 @@
+{
+  "currency": "USD",
+  "checked_at": "2026-09-28",
+  "source": "https://ai.google.dev/gemini-api/docs/pricing (paid tier list price; free tier usage is still costed at list price so budgets are conservative)",
+  "models": {
+    "insighthub-chat": {"upstream": "gemini/gemini-3.1-flash-lite", "input_usd_per_million": 0.25, "output_usd_per_million": 1.5},
+    "insighthub-chat-local": {"upstream": "ollama_chat/qwen2.5:7b-instruct", "input_usd_per_million": 0, "output_usd_per_million": 0},
+    "insighthub-guardrail": {"upstream": "rules + ollama llama-guard3:1b (blocked before provider)", "input_usd_per_million": 0, "output_usd_per_million": 0}
+  },
+  "budget_usd": 2.0
+}

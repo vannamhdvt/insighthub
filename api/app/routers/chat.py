@@ -33,6 +33,7 @@ class ChatResponse(BaseModel):
     mode: Literal["fixture", "real"]
     provider: str
     model: str
+    request_id: str | None = None
     usage: TokenUsage
 
 

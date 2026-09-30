@@ -1,0 +1,56 @@
+# Postgres for LiteLLM keys/budgets/spend logs. PVC (not emptyDir): virtual keys and
+# spend must survive restarts, otherwise budgets silently reset.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: litellm-postgres
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-postgres
+  labels: {app.kubernetes.io/name: litellm-postgres, app.kubernetes.io/part-of: insighthub}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: litellm-postgres}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: litellm-postgres, app.kubernetes.io/part-of: insighthub}
+    spec:
+      securityContext: {fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: postgres
+          # Same pinned image as the InsightHub stack.
+          image: pgvector/pgvector:0.8.2-pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+          env:
+            - {name: POSTGRES_DB, value: litellm}
+            - {name: POSTGRES_USER, value: litellm}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: litellm-secrets, key: POSTGRES_PASSWORD}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{name: pg, containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "litellm", "-d", "litellm"]}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: litellm-postgres}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-postgres
+  labels: {app.kubernetes.io/name: litellm-postgres}
+spec:
+  selector: {app.kubernetes.io/name: litellm-postgres}
+  ports: [{name: pg, port: 5432, targetPort: pg}]

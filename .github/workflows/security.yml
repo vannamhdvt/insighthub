@@ -1,0 +1,27 @@
+name: Security (Day 6)
+on:
+  push:
+    paths: ["security/**", "api/app/**", "api/tests/**", ".github/workflows/security.yml"]
+  pull_request:
+    paths: ["security/**", "api/app/**", "api/tests/**", ".github/workflows/security.yml"]
+permissions:
+  contents: read
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Guardrail unit tests + promptfoo config validation (pinned versions, no live target)
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            python:3.12.14-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea sh -ec '
+              pip install --no-cache-dir pytest==9.1.1
+              python -m pytest security/tests -v -p no:cacheprovider
+            '
+          docker run --rm -v "$PWD:/work" -w /work node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf sh -ec '
+            npm --prefix security/promptfoo ci --ignore-scripts --no-audit --no-fund
+            cd security && ./promptfoo/node_modules/.bin/promptfoo validate config -c promptfooconfig.yaml
+          '

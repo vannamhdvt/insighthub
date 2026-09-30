@@ -35,17 +35,17 @@ Trách nhiệm:
 * `postgres`: nguồn sự thật cho status và chunks.
 * `web`: chỉ hiển thị và poll.
 
-`api` và `ingestion-worker` phải dùng chung `REDIS_URL` và `UPLOAD_DIR`. Lệch một
-trong hai là upload trả `202` mà không ai xử lý.
+`api` và `ingestion-worker` phải dùng chung `REDIS_URL` và `UPLOAD_DIR` (lệch = `202` mà không ai xử lý).
 
 Deploy (Day 3): Terraform `infra/` (EKS, RDS pgvector, ElastiCache, IRSA, Secrets
 Manager) + Helm `infra/helm/insighthub`. Trên EKS postgres/redis là managed service,
 không phải pod; secret vào pod qua IRSA + Secrets Store CSI. Spec: `infra/SPEC.md`.
 Observability (Day 4): api `/metrics`, worker `:9101/metrics`, redis/postgres exporter, blackbox probe
 web; rules + dashboard ở `observability/`. Fault injection `CHAOS_*` mặc định tắt.
-ChatOps (Day 5): `chatops-bot/` FastAPI nhận Slack Events (verify chữ ký trước, ACK <3s, queue SQLite
-dedup), đọc qua Kubernetes/Prometheus MCP Day 2 bằng SA `chatops-readonly`; scale chỉ qua token
-duyệt 60s và SA riêng `chatops-scaler`; audit JSONL. Chi tiết: `chatops-bot/README.md`.
+ChatOps (Day 5): `chatops-bot/` Slack Events (verify chữ ký, ACK <3s, queue dedup), đọc qua MCP Day 2
+(SA `chatops-readonly`); scale chỉ qua token 60s + SA `chatops-scaler`; audit JSONL.
+Day 6: mọi LLM/embedding call đi qua LiteLLM gateway (`security/gateway/`, ns `llm-gateway`) với 3 virtual
+key (insighthub/chatops-bot/coding) + guardrail; app không giữ provider key. Chi tiết: `security/README.md`.
 
 ## Conventions
 
@@ -85,7 +85,7 @@ chậm treo cả API.
   `checkov -d infra`, `conftest test --policy infra/policies/terraform <plan.json>`
 * Runbook AWS/teardown: `docs/runbooks/day3-aws-lab.md`
 * Day 4 observability/drill/RCA: `docs/runbooks/day4-observability.md`; `promtool test rules observability/rules/insighthub-rules.test.yaml`
-* Day 5 ChatOps: `make test-chatops`; chạy bot `cd chatops-bot && uvicorn app.main:app --port 8080` + `ngrok http 8080`
+* Day 5 ChatOps: `make test-chatops`. Day 6: `python3 -m pytest security/tests`, runbook `security/README.md`
 
 Tái hiện failure case:
 

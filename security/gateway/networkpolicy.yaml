@@ -1,0 +1,32 @@
+# Only InsightHub (api/worker), Prometheus and the gateway itself reach LiteLLM;
+# only LiteLLM reaches its Postgres. Mac-side clients (bot, coding, promptfoo) use
+# kubectl port-forward. (Enforced only with a NetworkPolicy-capable CNI.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-ingress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: litellm}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: insighthub-local}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports: [{port: 4000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-postgres-ingress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: litellm-postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: litellm}
+      ports: [{port: 5432}]

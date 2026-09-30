@@ -38,6 +38,12 @@ config:
   PROVIDER_TIMEOUT_SECONDS: "60"
   UPLOAD_DIR: /var/lib/insighthub/uploads
 
+# Day 6: route LLM + embedding calls through the LiteLLM gateway with a virtual key
+# stored in this Secret (key OPENAI_API_KEY). See values-gateway.yaml.
+llmGateway:
+  enabled: false
+  secretName: insighthub-llm-gateway
+
 # DATABASE_URL and REDIS_URL. Never in values.
 runtimeSecret:
   # aws: Secrets Store CSI driver + AWS provider, read with the pod IRSA role

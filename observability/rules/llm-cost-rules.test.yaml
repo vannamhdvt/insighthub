@@ -1,0 +1,29 @@
+rule_files: [llm-cost-rules.yaml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'litellm_remaining_api_key_budget_metric{api_key_alias="coding"}'
+        values: '0.5 0.3 0.05x10'
+      - series: 'litellm_api_key_max_budget_metric{api_key_alias="coding"}'
+        values: '0.5x12'
+      - series: 'litellm_spend_metric_total{api_key_alias="coding"}'
+        values: '0+0.001x12'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: InsightHubLLMBudgetLow
+        exp_alerts:
+          - exp_labels: {api_key_alias: coding, severity: warning, component: llm-gateway}
+            exp_annotations:
+              summary: "Virtual key coding has <20% budget left"
+              description: "Gateway will start returning budget_exceeded (HTTP 429) for this workload. Review usage in the LLM Cost dashboard."
+              runbook_url: "security/README.md#insighthubllmbudgetlow"
+      - eval_time: 9m
+        alertname: InsightHubLLMCostSpike
+        exp_alerts: []
+    promql_expr_test:
+      - expr: round(insighthub:llm_cost_usd_per_hour:by_key, 0.001)
+        eval_time: 10m
+        exp_samples:
+          - labels: '{api_key_alias="coding"}'
+            value: 0.06
